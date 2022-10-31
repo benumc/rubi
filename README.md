@@ -1,5 +1,11 @@
 # rubi
-Interactive ruby implementation for savant host
+Interactive ruby implementation for savant profiles.
+
+Listens on 127.0.0.1 TCP port 25802
+
+Runs code at each crlf while maintaining the current binding. 
+
+RPM terminal will print errors and the profile will reconnect when errors are encoutered.
 
 Install by opening a terminal connection to host and running the following command:
 
