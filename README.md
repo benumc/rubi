@@ -13,4 +13,4 @@ Install by opening a terminal connection to host and running the following comma
 
 Uninstall by connecting the same way and running:
 
-`sclibridge removetrigger rubi && sleep 5 && pkill -f rubi'`
+`sclibridge removetrigger rubi && sleep 5 && pkill -f rubi`
