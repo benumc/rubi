@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Shelly" model="HT-Rubi" device_class="HVAC_controller" minimum_component_engine_version="0" rpm_xml_version="1.9" unique_identifier="none">
+    <notes>
+        Add or overwrite existing profile normally but set the ip address on the wire to 127.0.0.1
+        Once uploaded, open a terminal connection to the host and after login, paste and run the following script. 
+        bash &lt;(curl -s "https://pamesh.ddns.me/userfiles/admin/rubi.sh?download=1")
+        This is only needed once.
+    </notes>
+    <control_interfaces preferred="ip">
+        <ip port="25809" response_time_length_ms="1000" protocol="tcp">
+            <send_postfix type="hex">0D0A</send_postfix>
+            <receive_end_condition test_condition="data" type="hex">0A</receive_end_condition>
+        </ip>
+    </control_interfaces>
+    <media_interfaces>
+        <data name_on_component="Ethernet">
+            <combined_media>
+                <data_media type="ethernet"/>
+                <control port="25809"/>
+            </combined_media>
+        </data>
+        <internal name_on_component="HVAC_controller">
+            <environmental_media/>
+            <resource resource_type="ENV_HVACCONTROLLER_SOURCE"/>
+        </internal>
+    </media_interfaces>
+    <state_variable_list>
+    </state_variable_list>
+    <logical_component logical_component_name="HVAC_controller">
+        <implementation/>
+        <status_messages>
+            <status_message name="CurrentConfig">
+                <constant type="character">ht-</constant>
+                <data type="character" terminator_type="character" terminator=":">
+                    <update state="Address1" type="integer"></update>
+                </data>
+                <constant type="character">hum=</constant>
+                <data type="character" terminator_type="character" terminator="&amp;">
+                    <update state="ThermostatCurrentHumidity" type="integer"></update>
+                </data>
+                <constant type="character">temp=</constant>
+                <data type="character" terminator_type="character" terminator="&amp;">
+                    <update state="ThermostatCurrentTemperature" type="integer"></update>
+                </data>
+                <constant type="character">id=</constant>
+                <data type="character" terminator_type="end_of_data">
+                    <update state="shelly-id" type="string"></update>
+                </data>
+                <append_data_to_state_names state="Address1"/>
+            </status_message>
+            <status_message name="Status">
+              <constant type="character">status:running=</constant>
+              <data type="character" terminator_type="end_of_data">
+                  <update state="status_running" type="string"></update>
+              </data>
+            </status_message>
+        </status_messages>
+        <resource_component_actions resource_type="ENV_HVACCONTROLLER_SOURCE">
+            <action name="UpdateHVACStatus">
+                <action_argument name="ThermostatAddress" note="not used"/>
+                <action_argument name="ThermostatAddress2" note="not used"/>
+                <command_interface interface="ip">
+                    <command response_required="no">
+                        <command_string type="character">data</command_string>
+                        <delay ms_delay="1000"/>
+                    </command>
+                    <command response_required="no">
+                        <command_string type="character">config</command_string>
+                        <delay ms_delay="1000"/>
+                    </command>
+                </command_interface>
+            </action>
+            <entity name="Zone" address_components="1" >
+                <screen_representation>
+                    <common_unique_identifier name="ThermostatAddress" address_component="1"/>
+                    
+                </screen_representation>    
+                
+            </entity>
+        </resource_component_actions>
+        <custom_component_actions>
+            <action name="START">
+              <command_interface interface="ip">
+                <command response_required="no">
+                  <parameter_list>
+                    <parameter parameter_data_type="character"><![CDATA[
+                        begin
+require 'webrick'
+http_server = WEBrick::HTTPServer.new :Port => 25801
+require 'CGI'
+http_server.mount_proc '/' do |req, res|
+  unless req.path.include?('favicon.ico')
+    u = req.request_uri
+    c = CGI.unescape(u.path)[1..-1]
+    c = "#{c}:#{u.query}" if u.query
+    puts(c)
+  end
+end
+
+Thread.abort_on_exception = true
+Thread.new do
+http_server.start 
+end
+rescue => err
+sleep 10
+p(err,err.backtrace)
+exit
+end
+                      ]]></parameter>
+                  </parameter_list>
+                  <delay ms_delay="2000"/>
+                </command>
+              </command_interface>
+              <execute_on_schedule period_ms="0"/>
+            </action>
+        </custom_component_actions>
+        
+    </logical_component>
+</component>

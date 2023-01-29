@@ -1,0 +1,523 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="MyQ"
+  model="Garage-Door-Opener-rubi-v6"
+  device_class="Garage_controller" unique_identifier="none" minimum_component_engine_version="8.3"
+  rpm_xml_version="2.8">
+  <notes>
+    Setup
+    Must set address on the wire to 127.0.0.1
+    Hass (ip address or hostname) and token need to be set in the state variables section
+    Host must have rubi installed
+    bash &lt;(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh")
+    
+    
+    You must edit the state variables username and password
+    If you will be getting state feedback some other sensor, it is a good idea to set enable-polling to 0
+    Initial setup must be completed within the chamerlain app before using this profile
+    
+    To obtain the correct device ids for your data table upload your project with these profiles and polling enabled.
+    In system monitor you should see your devices IDs populate along with their doorstate.
+    
+    2.8 Fixed Typo in startup script
+    2.7 Updated open/close action
+    2.6 Complete auth re-write to manage oauth
+    2.5 Updated MyQ Application ID header
+    2.4 Typos FTW
+    2.3 Fix string interpolation issue.
+    2.2 Update startup code to match profile name
+    2.1 Fix code syntax error
+    2.0 Rewrite for new api version
+    </notes>
+  <control_interfaces preferred="ip">
+    <ip port="25809" response_time_length_ms="1000" protocol="tcp">
+      <send_postfix type="hex">0D0A</send_postfix>
+      <receive_end_condition test_condition="data" type="hex">0A</receive_end_condition>
+    </ip>
+  </control_interfaces>
+  <media_interfaces>
+    <data name_on_component="Ethernet">
+      <combined_media>
+        <data_media type="ethernet"/>
+        <control port="25809"/>
+      </combined_media>
+    </data>
+    <internal name_on_component="GarageDoorController">
+      <environmental_media/>
+      <resource resource_type="ENV_GARAGE_DOOR_SOURCE"/>
+    </internal>
+  </media_interfaces>
+  <state_variable_list>
+    <state_variable name="username" owning_logical_component="Security_system" state_center_type="string" state_center_binding="username" user_editable="yes"/>
+    <state_variable name="password" owning_logical_component="Security_system" state_center_type="protected_string" state_center_binding="password" user_editable="yes"/>
+    <dynamic_state_variable name="GarageDoorStatus" owning_logical_component="Security_system" state_center_type="string" state_center_binding="GarageDoorStatus"></dynamic_state_variable>
+  </state_variable_list>
+  <logical_component logical_component_name="Security_system">
+    <implementation>
+      <internal name_on_component="GarageDoorController"/>
+      <data name_on_component="Ethernet"/>
+    </implementation>
+    <status_messages>
+      <status_message name="StatusUpdate">
+        <constant type="character">status:id=</constant>
+        <data type="character" terminator="," terminator_type="character">
+          <update state="deviceid" type="string"/>
+        </data>
+        <constant type="character">typename=</constant>
+        <data type="character" terminator="," terminator_type="character">
+          <update state="typename" type="string"/>
+        </data>
+        <constant type="character">GarageDoorStatus=</constant>
+        <data type="character" terminator_type="end_of_data">
+          <update state="GarageDoorStatus" type="string"/>
+        </data>
+        <append_data_to_state_names state="deviceid"/>
+      </status_message>
+      <status_message name="LogResponse">
+        <constant type="character">logresponse_</constant>
+        <data type="character" terminator_type="end_of_data">
+          <update state="CommandReply" type="string"/>
+        </data>
+      </status_message>
+      <status_message name="Log">
+        <data type="character" terminator_type="character" terminator="____">
+          <update state="LgNum" type="string"/>
+        </data>
+        <data type="character" terminator_type="end_of_data">
+          <update state="Log" type="string"/>
+        </data>
+        <append_data_to_state_names state="LgNum"/>
+      </status_message>
+      <status_message name="Started">
+        <constant type="character">ScriptStart</constant>
+        <data type="character" terminator_type="end_of_data">
+          <update state="junk" type="string"></update>
+        </data>
+        <run_elements>
+          <actions>
+            <action name="un">
+              <command_interface interface="ip">
+                <command response_required="no">
+                  <command_string type="character">un:</command_string>
+                  <parameter_list>
+                    <parameter parameter_data_type="character" state_variable="username"></parameter>
+                  </parameter_list>
+                </command>
+              </command_interface>
+            </action>
+            <action name="pw">
+              <command_interface interface="ip">
+                <command response_required="no">
+                  <command_string type="character">pw:</command_string>
+                  <parameter_list>
+                    <parameter parameter_data_type="character" state_variable="password"></parameter>
+                  </parameter_list>
+                </command>
+              </command_interface>
+            </action>
+          </actions>
+        </run_elements>
+      </status_message>
+      <status_message name="EverythingElse">
+        <data type="character" terminator_type="end_of_data">
+          <update state="Log" type="string"/>
+        </data>
+      </status_message>
+    </status_messages>
+    <resource_component_actions resource_type="ENV_GARAGE_DOOR_SOURCE">
+      <action name="CloseGarageDoor">
+        <action_argument name="GarageDoorAddress" note="Device Serial Number"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">open_close('</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="GarageDoorAddress"/>
+              <parameter parameter_data_type="character">', 'close')</parameter>
+            </parameter_list>
+          </command>
+        </command_interface>
+      </action>
+
+      <action name="OpenGarageDoor">
+        <action_argument name="GarageDoorAddress" note="Device Serial Number"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">open_close('</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="GarageDoorAddress"/>
+              <parameter parameter_data_type="character">', 'open')</parameter>
+            </parameter_list>
+          </command>
+        </command_interface>
+      </action>
+
+      <entity name="Garage Door" address_components="1">
+        <toggle_button_representation>
+          <release_action name="OpenGarageDoor"/>
+          <toggle_release_action name="CloseGarageDoor"/>
+        </toggle_button_representation>
+      </entity>
+    </resource_component_actions>
+    <custom_component_actions>
+
+      <action name="Poll">
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">poll_status</command_string>
+            <delay ms_delay="50"/>
+          </command>
+        </command_interface>
+        <!-- <execute_on_schedule period_ms="15000"></execute_on_schedule>-->
+      </action>
+
+      <action name="Start">
+        <command_interface interface="ip">
+          <command response_required="no"> <!-- username-->
+            <parameter_list>
+              <parameter parameter_data_type="character">@un = '</parameter>
+              <parameter parameter_data_type="character" state_variable="username"/>
+              <parameter parameter_data_type="character">'</parameter>
+            </parameter_list>
+          </command>
+          <command response_required="no"> <!-- password -->
+            <parameter_list>
+              <parameter parameter_data_type="character">@pw = '</parameter>
+              <parameter parameter_data_type="character" state_variable="password"/>
+              <parameter parameter_data_type="character">'</parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- Globals-->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+
+require 'digest'
+require 'securerandom'
+require 'json'
+
+MYQ_API_CLIENT_ID = 'IOS_CGI_MYQ'
+MYQ_API_CLIENT_SECRET = 'VUQ0RFhuS3lQV3EyNUJTdw=='
+MYQ_API_REDIRECT_URI = 'com.myqops://ios'
+MYQ_AUTH_ENDPOINT = 'https://partner-identity.myq-cloud.com/connect/authorize'
+MYQ_AUTH = 'https://partner-identity.myq-cloud.com'
+MYQ_TOKEN_URI = 'https://partner-identity.myq-cloud.com/connect/token'
+
+
+
+@log_num = 0
+
+@tk = nil
+@ac = nil
+@da = {}
+@rt = nil
+@at = nil
+@ex = Time.now
+@doorstates = {}
+
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- send -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[
+
+def send_savant(msg='')
+  @stdout.print "#{msg}\r"
+  @stdout.flush
+  #puts msg
+end
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- Challenge -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+
+class Challenge
+  attr_reader :verifier, :code_challenge
+
+  def initialize(options = {})
+    @options = options
+  end
+
+  def code_verifier
+    @verifier ||= generate_code_verifier
+  end
+
+  def code_challenge
+    @code_challenge ||= generate_pkce_challenge
+  end
+
+  # constants definition
+
+  CHAR_LENGTH = {
+    default: 48,
+    max: 128,
+    min: 43,
+  }.freeze
+
+  private
+
+  def generate_code_verifier
+    length = (@options[:char_length] || CHAR_LENGTH[:default]).to_i
+
+    unless length.between?(CHAR_LENGTH[:min], CHAR_LENGTH[:max])
+      raise PkceChallenge::LengthOutOfRangeError
+    end
+
+    urlsafe_base64(SecureRandom.base64((length * 3) / 4))
+  end
+
+  def generate_pkce_challenge
+    urlsafe_base64(Digest::SHA256.base64digest(code_verifier))
+  end
+
+  def urlsafe_base64(base64_str)
+    base64_str.tr("+/", "-_").tr("=", "")
+  end
+end
+
+]]></parameter>
+</parameter_list>
+<delay ms_delay="1050" />
+</command>
+
+<command response_required="no"> <!-- Login -->
+<parameter_list>
+  <parameter parameter_data_type="character"><![CDATA[ 
+
+def login
+  raise 'login info requried' unless @un && @pw
+
+  pkce_challenge = Challenge.new
+  request_string = {
+    client_id: 'IOS_CGI_MYQ',
+    code_challenge: pkce_challenge.code_challenge,
+    code_challenge_method: 'S256',
+    redirect_uri: 'com.myqops%3A%2F%2Fios',
+    response_type: 'code',
+    scope: 'MyQ_Residential+offline_access'
+  }.map{|k,v| "#{k}=#{v}"}.join("&")
+
+  
+  response = `curl -isLH "User-Agent: null" '#{MYQ_AUTH_ENDPOINT}?#{request_string}'`
+  cookies = response.scan(/[Ss]et-[Cc]ookie: ([AT][^;]+);/).flatten.last(2)
+  cookie = cookies.join("; ")
+  request_token = response[/_RequestVerificationToken" type="hidden" value="([^"]+)"/,1]
+  uri = response[/<form action="([^"]+)"/,1]
+  
+  login_body = { 
+    Email: @un, 
+    Password: @pw, 
+    "__RequestVerificationToken" => request_token
+  }.map{|k,v| "#{k}=#{v}"}.join("&")
+  
+  
+  login_headers = [
+    "-H 'Content-Type: application/x-www-form-urlencoded'",
+    "-H 'Cookie: #{cookie}'",
+    "-H 'User-Agent: null'",
+  ].join(' ')
+  
+  
+  response = `curl -si #{login_headers} -d '#{login_body}' '#{MYQ_AUTH}#{uri}'`
+  redirect_url = response[/Location: ([^\r]+)\r/,1]
+  cookie = response.scan(/[Ss]et-[Cc]ookie: ([Ti][^;]+);/).flatten.join("; ")
+  response = `curl -si -H 'User-Agent: null' -H 'Cookie: #{cookie}' '#{MYQ_AUTH}#{redirect_url}'`
+  redirect_url = response[/Location: ([^\r]+)\r/,1]
+  r_code = redirect_url[/code=([^&]+)&/,1]
+  r_scope = redirect_url[/scope=([^&]+)&/,1]
+  
+  
+  redirect_string = {
+    client_id: MYQ_API_CLIENT_ID,
+    client_secret: 'UD4DXnKyPWq25BSw',
+    code: r_code,
+    code_verifier: pkce_challenge.code_verifier,
+    grant_type: "authorization_code",
+    redirect_uri: 'com.myqops%3A%2F%2Fios',
+    scope: 'MyQ_Residential+offline_access'
+  }.map{|k,v| "#{k}=#{v}"}.join("&")
+  
+  headers = [
+    "-H 'Content-Type: application/x-www-form-urlencoded'",
+    "-H 'User-Agent: null'",
+  ].join(' ')
+  
+  response = JSON.parse(`curl -s #{headers} -d '#{redirect_string}' '#{MYQ_TOKEN_URI}'`.chomp)
+
+  @at = response['access_token']
+  @rt = response['refresh_token']
+  @ex = Time.now + (response['expires_in'] - 1000)
+end
+
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- refersh_token -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+
+def refresh_token
+  return login unless @rt
+  headers = [
+    "-H 'Content-Type: application/x-www-form-urlencoded'",
+    "-H 'User-Agent: null'",
+  ].join(' ')
+  token_body = {
+	  client_id: MYQ_API_CLIENT_ID,
+      client_secret: 'UD4DXnKyPWq25BSw',
+      grant_type: 'refresh_token',
+      redirect_uri: 'com.myqops%3A%2F%2Fios',
+      scope: 'MyQ_Residential+offline_access',
+      refresh_token: @rt
+  }.map{|k,v| "#{k}=#{v}"}.join("&")
+  response = `curl -s #{headers} -d '#{token_body}' 'https://partner-identity.myq-cloud.com/connect/token'`
+  puts response
+  response = JSON.parse(response.chomp)
+  @at = response['access_token']
+  @rt = response['refresh_token']
+  @ex = Time.now +  (response['expires_in'] - 1000)
+end
+
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- requests -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+
+def myq_headers
+  refresh_token unless @ex > Time.now
+  "-H 'Authorization: Bearer #{@at}'"
+end
+
+def myq_get(uri)
+  req = "curl -sX GET #{myq_headers} '#{uri}'"
+
+  `#{req}`
+
+  p(r)
+  r
+end
+
+def myq_put(uri,body)
+  req = "curl -sX PUT #{myq_headers} -d '#{body}' '#{uri}'"
+  
+  r = `#{req}`
+  p(r)
+  r
+
+end
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- get_accounts -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+
+def get_accounts
+  rsp = JSON.parse(myq_get('https://accounts.myq-cloud.com/api/v6.0/accounts'))
+  @ac = rsp['accounts']
+  rsp
+end
+
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- poll_status -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+
+
+def poll_status
+  get_accounts unless @ac
+  @ac.each do |ac|
+	  rsp = myq_get("https://devices.myq-cloud.com/api/v5.2/Accounts/#{ac['id']}/Devices")
+	  st = JSON.parse(rsp)
+	  
+	  st['items'].each do |d|
+      s = 'Open'
+      next unless d['state'] && d['state']['door_state']
+      s = 'Closed' if d['state']['door_state'] == 'closed'
+      id = d['serial_number']
+      nm = d['name']
+      send_savant("status:id=#{id},typename=#{nm},GarageDoorStatus=#{s}")
+      @doorstates[id] = [ac,s]
+      @da[id] = ac['id']
+	  end
+  end
+end
+
+            ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="1050" />
+          </command>
+
+          <command response_required="no"> <!-- op -->
+            <parameter_list>
+              <parameter parameter_data_type="character"><![CDATA[ 
+def open_close(id,state)
+  get_accounts unless @ac
+  pay = ''
+  uri = "https://account-devices-gdo.myq-cloud.com/api/v5.2/Accounts/#{@da[id]}/door_openers/#{id}/#{state}"
+  rsp = myq_put(uri,pay)
+  p rsp
+end
+
+require 'digest'
+require 'securerandom'
+require 'json'
+              ]]></parameter>
+            </parameter_list>
+            <delay ms_delay="250"/>
+          </command>
+        </command_interface>
+        <execute_on_schedule period_ms="0"/>
+      </action>
+    </custom_component_actions>
+  </logical_component>
+</component>
+
+<!--[CDATA[
+
+loop do
+  begin
+    ready = select([@stdin],nil,nil,10)
+  rescue => e
+    p e.inspect
+    p e.backtrace
+  end
+  if ready
+    message = @stdin.gets("\r").strip
+    case message
+    when /un:(.+)/
+      @un = @1 unless @1.empty?
+    when /pw:(.+)/
+      @pw = @1 unless @1.empty?
+    when /open:(.+)/
+      open_close(@1,'open')
+    when /close:(.+)/
+      open_close(@1,'close')
+    else
+      p("unexpected #{message}")
+    end
+  else
+    poll_status
+  end
+end
+
+#-->

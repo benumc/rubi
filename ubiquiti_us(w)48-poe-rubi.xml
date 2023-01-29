@@ -1,0 +1,954 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Ubiquiti"
+  model="US(W)48-POE-RUBI" device_class="Trigger_environment_device" minimum_component_engine_version="0.0"
+  rpm_xml_version="2.12" unique_identifier="none">
+  <notes>
+        requires rubi running on system host.
+        bash &lt;(curl -s "https://pamesh.ddns.me/userfiles/admin/rubi.sh?download=1")
+
+        address on wire set to 127.0.0.1
+
+    </notes>
+  <control_interfaces preferred="ip">
+    <ip port="25809" response_time_length_ms="3000" name_on_component="ETHERNET" protocol="tcp">
+      <send_postfix type="hex">0D0A</send_postfix>
+      <receive_end_condition test_condition="data" type="hex">0A</receive_end_condition>
+      <receive_end_condition test_condition="data" type="character">word: </receive_end_condition>
+    </ip>
+  </control_interfaces>
+  <media_interfaces>
+    <data name_on_component="ETHERNET">
+      <combined_media>
+        <data_media type="ethernet"/>
+        <control port="25809"/>
+      </combined_media>
+    </data>
+    <internal name_on_component="Keypad Interface">
+      <environmental_media/>
+      <resource resource_type="ENV_KEYPAD_SOURCE"/>
+    </internal>
+  </media_interfaces>
+  <state_variable_list>
+    <state_variable name="user_name" owning_logical_component="Unifi_switch" state_center_binding="user_name" state_center_type="string" user_editable="yes">admin</state_variable>
+    <state_variable name="password" owning_logical_component="Unifi_switch" state_center_binding="password" state_center_type="protected_string" user_editable="yes">admin</state_variable>
+    <state_variable name="ip_address" owning_logical_component="Unifi_switch" state_center_binding="ip_address" state_center_type="string" user_editable="yes">192.168.1.1</state_variable>
+  </state_variable_list>
+  <logical_component logical_component_name="Unifi_switch">
+    <implementation>
+      <internal name_on_component="Keypad Interface"/>
+    </implementation>
+    <status_messages>
+      <status_message name="Password">
+        <data type="character" terminator_type="character" terminator="'s pass"/>
+        <run_elements>
+          <actions>
+            <action name="Password">
+              <command_interface interface="ip">
+                <command response_required="no">
+                  <parameter_list>
+                    <parameter parameter_data_type="character">ssh.puts('</parameter>
+                    <parameter parameter_data_type="character" state_variable="password"/>
+                    <parameter parameter_data_type="character">')</parameter>
+                  </parameter_list>
+                </command>
+              </command_interface>
+            </action>
+          </actions>
+        </run_elements>
+      </status_message>
+      <status_message name="Logged-In">
+        <constant type="character">*************************************************************************</constant>
+        <data type="character" terminator_type="end_of_data"/>
+        <run_elements>
+          <actions>
+            <action name="CLI">
+              <command_interface interface="ip">
+                <command response_required="no">
+                  <command_string>ssh.puts('cli')</command_string>
+                </command>
+              </command_interface>
+            </action>
+          </actions>
+        </run_elements>
+      </status_message>
+      <status_message name="Unhandled">
+        <data type="character" terminator_type="end_of_data">
+          <update state="unhandled" type="string"></update>
+        </data>
+      </status_message>
+    </status_messages>
+    <resource_component_actions resource_type="ENV_KEYPAD_SOURCE">
+    
+      <action name="SetLEDOn">
+        <action_argument name="StationNumber" note="Port To Enable"/>
+        <action_argument name="ButtonNumber" note="not used"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">port_control(</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="StationNumber"/>
+              <parameter parameter_data_type="character">,ssh,1)</parameter>
+            </parameter_list>
+            <delay ms_delay="100"/>
+          </command>
+        </command_interface>
+      </action>
+
+      <action name="SetLEDOff">
+        <action_argument name="StationNumber" note="Port To Disable"/>
+        <action_argument name="ButtonNumber" note="not used"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">port_control(</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="StationNumber"/>
+              <parameter parameter_data_type="character">,ssh,0)</parameter>
+            </parameter_list>
+            <delay ms_delay="100"/>
+          </command>
+        </command_interface>
+      </action>
+      
+      <action name="QueryStationLEDStates">
+        <action_argument name="StationAddress" note="Port To Cycle"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">port_control(</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="StationAddress"/>
+              <parameter parameter_data_type="character">,ssh,2)</parameter>
+            </parameter_list>
+            <delay ms_delay="100"/>
+          </command>
+        </command_interface>
+      </action>
+    </resource_component_actions>
+    <custom_component_actions>
+      <action name="login">
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character"><![CDATA[
+def port_control(port_number,ssh,command)
+  cmd = command.to_i
+  raise "valid commands 0,1,2 = off,on,cycle. '#{command}' give" unless cmd.between?(0,2)
+  raise "invalid port number #{port_number}" unless port_number.to_i.between?(1,48)
+  ssh.puts([0x1A].pack('C*'))
+  ssh.puts('enable')
+  ssh.puts('configure')
+  ssh.puts("interface 0/#{port_number}")
+  ssh.puts('poe opmode shutdown') if(cmd!=1)
+  ssh.puts('poe opmode auto') if(cmd>0)
+rescue => e
+  puts(e,e.backtrace)
+  nil
+end
+
+def connect(user,ip)
+  r,ssh = IO.pipe
+  Process.spawn(%Q[expect -c "spawn ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no #{user}@#{ip};interact"], :in => r, :out => $stdout, :err => [:child, :out])
+  r.close
+  ssh
+rescue=>e
+  puts(e,e.backtrace)
+  nil
+end
+              ]]></command_string>
+          </command>
+          <command response_required="no">
+            <command_string type="character">ssh = connect('</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" state_variable="user_name"/>
+              <parameter parameter_data_type="character">','</parameter>
+              <parameter parameter_data_type="character" state_variable="ip_address"/>
+              <parameter parameter_data_type="character">')</parameter>
+            </parameter_list>
+            <delay ms_delay="3000"/>
+          </command>
+        </command_interface>
+        <execute_on_schedule period_ms="0"></execute_on_schedule>
+      </action>
+      <action name="POE Cycle Port">
+        <action_argument name="port_number"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">port_control(</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="StationAddress"/>
+              <parameter parameter_data_type="character">,ssh,2)</parameter>
+            </parameter_list>
+            <delay ms_delay="100"/>
+          </command>
+        </command_interface>
+      </action>
+      <action name="POE On Port">
+        <action_argument name="port_number"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">port_control(</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="StationAddress"/>
+              <parameter parameter_data_type="character">,ssh,1)</parameter>
+            </parameter_list>
+            <delay ms_delay="100"/>
+          </command>
+        </command_interface>
+      </action>
+      <action name="POE Off Port">
+        <action_argument name="port_number"/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <command_string type="character">port_control(</command_string>
+            <parameter_list>
+              <parameter parameter_data_type="character" action_argument="StationAddress"/>
+              <parameter parameter_data_type="character">,ssh,0)</parameter>
+            </parameter_list>
+            <delay ms_delay="100"/>
+          </command>
+        </command_interface>
+      </action>
+      <action name="POE Port 1 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="1" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 1 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="1" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 1 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="1" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 2 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="2" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 2 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="2" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 2 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="2" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 3 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="3" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 3 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="3" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 3 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="3" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 4 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="4" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 4 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="4" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 4 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="4" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 5 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="5" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 5 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="5" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 5 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="5" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 6 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="6" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 6 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="6" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 6 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="6" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 7 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="7" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 7 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="7" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 7 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="7" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 8 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="8" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 8 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="8" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 8 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="8" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 9 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="9" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 9 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="9" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 9 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="9" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 10 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="10" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 10 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="10" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 10 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="10" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 11 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="11" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 11 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="11" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 11 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="11" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 12 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="12" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 12 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="12" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 12 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="12" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 13 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="13" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 13 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="13" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 13 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="13" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 14 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="14" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 14 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="14" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 14 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="14" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 15 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="15" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 15 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="15" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 15 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="15" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 16 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="16" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 16 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="16" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 16 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="16" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 17 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="17" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 17 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="17" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 17 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="17" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 18 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="18" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 18 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="18" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 18 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="18" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 19 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="19" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 19 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="19" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 19 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="19" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 20 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="20" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 20 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="20" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 20 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="20" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 21 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="21" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 21 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="21" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 21 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="21" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 22 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="22" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 22 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="22" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 22 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="22" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 23 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="23" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 23 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="23" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 23 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="23" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 24 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="24" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 24 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="24" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 24 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="24" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 25 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="25" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 25 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="25" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 25 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="25" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 26 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="26" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 26 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="26" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 26 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="26" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 27 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="27" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 27 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="27" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 27 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="27" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 28 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="28" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 28 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="28" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 28 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="28" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 29 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="29" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 29 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="29" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 29 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="29" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 30 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="30" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 30 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="30" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 30 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="30" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 31 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="31" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 31 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="31" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 31 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="31" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 32 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="32" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 32 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="32" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 32 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="32" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 33 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="33" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 33 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="33" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 33 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="33" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 34 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="34" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 34 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="34" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 34 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="34" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 35 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="35" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 35 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="35" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 35 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="35" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 36 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="36" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 36 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="36" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 36 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="36" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 37 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="37" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 37 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="37" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 37 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="37" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 38 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="38" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 38 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="38" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 38 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="38" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 39 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="39" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 39 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="39" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 39 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="39" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 40 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="40" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 40 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="40" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 40 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="40" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 41 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="41" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 41 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="41" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 41 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="41" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 42 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="42" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 42 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="42" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 42 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="42" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 43 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="43" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 43 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="43" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 43 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="43" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 44 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="44" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 44 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="44" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 44 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="44" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 45 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="45" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 45 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="45" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 45 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="45" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 46 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="46" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 46 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="46" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 46 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="46" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 47 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="47" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 47 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="47" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 47 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="47" />
+        </execute_action_after_delay>
+      </action>
+      
+      <action name="POE Port 48 Cycle">
+        <execute_action_after_delay ms_delay="1" action_name="POE Cycle Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="48" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 48 On">
+        <execute_action_after_delay ms_delay="1" action_name="POE On Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="48" />
+        </execute_action_after_delay>
+      </action>
+      <action name="POE Port 48 Off">
+        <execute_action_after_delay ms_delay="1" action_name="POE Off Port" action_type="CUSTOM" use_polling_queue="false" clear_duplicated="false">
+          <with_arg name="port_number" value="48" />
+        </execute_action_after_delay>
+      </action>
+    </custom_component_actions>
+  </logical_component>
+</component>
