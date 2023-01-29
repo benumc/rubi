@@ -17,7 +17,7 @@ Uninstall by connecting the same way and running:
 
 rubi based profiles should use the following control interfaces:
 
-
+`
   <control_interfaces preferred="ip">
     <ip port="25809" response_time_length_ms="1000" protocol="tcp">
       <send_postfix type="hex">0D0A</send_postfix>
@@ -25,6 +25,7 @@ rubi based profiles should use the following control interfaces:
     </ip>
   </control_interfaces>
   
+`
 All commands should be formatted as ruby instructions.
 Any multi-line instrunction including large code blocks should be wrapped in standard <![CDATA[ ]]> tags.
 It is very important that the document is formatted with line feeds only otherwise rubi will attempt to run every line as a complete instruction.
