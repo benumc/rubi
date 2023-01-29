@@ -16,6 +16,8 @@ Uninstall by connecting the same way and running:
 `sclibridge removetrigger rubi && sleep 5 && pkill -f rubi`
 
 rubi based profiles should use the following control interfaces:
+
+
   <control_interfaces preferred="ip">
     <ip port="25809" response_time_length_ms="1000" protocol="tcp">
       <send_postfix type="hex">0D0A</send_postfix>
