@@ -3,11 +3,11 @@
   xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="MyQ"
   model="Garage-Door-Opener-rubi-v6"
   device_class="Garage_controller" unique_identifier="none" minimum_component_engine_version="8.3"
-  rpm_xml_version="2.8">
+  rpm_xml_version="2.9">
   <notes>
     Setup
     Must set address on the wire to 127.0.0.1
-    (ip address or hostname) and credentials need to be set in the state variables section
+    Hass (ip address or hostname) and token need to be set in the state variables section
     Host must have rubi installed
     bash &lt;(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh")
     
@@ -220,20 +220,6 @@ MYQ_TOKEN_URI = 'https://partner-identity.myq-cloud.com/connect/token'
             <delay ms_delay="1050" />
           </command>
 
-          <command response_required="no"> <!-- send -->
-            <parameter_list>
-              <parameter parameter_data_type="character"><![CDATA[
-
-def send_savant(msg='')
-  $stdout.print "#{msg}\r"
-  $stdout.flush
-  #puts msg
-end
-            ]]></parameter>
-            </parameter_list>
-            <delay ms_delay="1050" />
-          </command>
-
           <command response_required="no"> <!-- Challenge -->
             <parameter_list>
               <parameter parameter_data_type="character"><![CDATA[ 
@@ -404,7 +390,7 @@ end
 def myq_get(uri)
   req = "curl -sX GET #{myq_headers} '#{uri}'"
 
-  `#{req}`
+  r = `#{req}`
 
   p(r)
   r
@@ -455,7 +441,7 @@ def poll_status
       s = 'Closed' if d['state']['door_state'] == 'closed'
       id = d['serial_number']
       nm = d['name']
-      send_savant("status:id=#{id},typename=#{nm},GarageDoorStatus=#{s}")
+      puts("status:id=#{id},typename=#{nm},GarageDoorStatus=#{s}")
       @doorstates[id] = [ac,s]
       @da[id] = ac['id']
 	  end
@@ -485,39 +471,32 @@ require 'json'
             </parameter_list>
             <delay ms_delay="250"/>
           </command>
+          <command response_required="no"> <!-- op -->
+            <parameter_list>
+              <parameter parameter_data_type="character">login</parameter>
+            </parameter_list>
+            <delay ms_delay="250"/>
+          </command>
+          <command response_required="no"> <!-- op -->
+            <parameter_list>
+              <parameter parameter_data_type="character">get_accounts</parameter>
+            </parameter_list>
+            <delay ms_delay="250"/>
+          </command>
         </command_interface>
-        <execute_on_schedule period_ms="0"/>
+	<execute_on_schedule period_ms="0"/>
+      </action>
+      <action name="poll_status">
+        <command_interface interface="ip">
+          <command response_required="no"> <!-- op -->
+            <parameter_list>
+              <parameter parameter_data_type="character">poll_status</parameter>
+            </parameter_list>
+            <delay ms_delay="250"/>
+          </command>
+        </command_interface>
+        <execute_on_schedule period_ms="10000"/>
       </action>
     </custom_component_actions>
   </logical_component>
 </component>
-
-<!--[CDATA[
-
-loop do
-  begin
-    ready = select([@stdin],nil,nil,10)
-  rescue => e
-    p e.inspect
-    p e.backtrace
-  end
-  if ready
-    message = @stdin.gets("\r").strip
-    case message
-    when /un:(.+)/
-      @un = @1 unless @1.empty?
-    when /pw:(.+)/
-      @pw = @1 unless @1.empty?
-    when /open:(.+)/
-      open_close(@1,'open')
-    when /close:(.+)/
-      open_close(@1,'close')
-    else
-      p("unexpected #{message}")
-    end
-  else
-    poll_status
-  end
-end
-
-#-->
