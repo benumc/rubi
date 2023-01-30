@@ -7,7 +7,7 @@
   <notes>
     Setup
     Must set address on the wire to 127.0.0.1
-    (ip address or hostname) and token need to be set in the state variables section
+    (ip address or hostname) and credentials need to be set in the state variables section
     Host must have rubi installed
     bash &lt;(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh")
     
