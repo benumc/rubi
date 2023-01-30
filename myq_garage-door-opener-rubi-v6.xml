@@ -225,8 +225,8 @@ MYQ_TOKEN_URI = 'https://partner-identity.myq-cloud.com/connect/token'
               <parameter parameter_data_type="character"><![CDATA[
 
 def send_savant(msg='')
-  @stdout.print "#{msg}\r"
-  @stdout.flush
+  $stdout.print "#{msg}\r"
+  $stdout.flush
   #puts msg
 end
             ]]></parameter>
