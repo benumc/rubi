@@ -49,6 +49,9 @@ include Socket::Constants
 @profile_folder = '/Users/RPM/Library/Application Support/RacePointMedia/userConfig.rpmConfig/componentProfiles/'
 @profile_folder = '/home/RPM/GNUstep/Library/ApplicationSupport/RacePointMedia/userConfig.rpmConfig/componentProfiles/' if RUBY_PLATFORM.include? 'linux'
 
+`pkill -9 rubi_script_bridge`
+Process.setproctitle('rubi_script_bridge')
+
 @profile_connection_server = TCPServer.new('127.0.0.1',25768) #only accept local connections for security reasons.
 
 @request_pattern = /cmd:run_script&prg:(?<prg>\w+)&file:(?<fnm>.+?)\.xml(?:&options:(?<ops>.+))?/
