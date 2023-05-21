@@ -5,18 +5,16 @@ $($SCL removetrigger rubi)
 sleep 2
 pkill -f rubi
 GZN=$($SCL userzones | tr \\n \\0 | xargs -0 $SCL servicesforzone | grep GENERIC | head -n 1 | tr - \\n | head -n 1)
-$($SCL settrigger rbwd 1 State global CurrentMinute Equal global.CurrentMinute 0 "$GZN" "" "" 1 "SVC_GEN_GENERIC" "RunCLIProgram" "COMMAND_STRING" "lsof -i :25809 || $SCL writestate global.rubi 0")
+$($SCL settrigger ruwd 1 State global CurrentMinute Equal global.CurrentMinute 0 "$GZN" "" "" 1 "SVC_GEN_GENERIC" "RunCLIProgram" "COMMAND_STRING" "lsof -i :25809 || $SCL writestate global.rubi 0")
 $($SCL settrigger rubi 1 String global rubi "Not Equal" 1 0 "$GZN" "" "" 1 "SVC_GEN_GENERIC" "RunCLIProgram" "COMMAND_STRING" "nohup ruby -r socket -e '
   SCB = %(#{RUBY_PLATFORM.include?(%(darwin))?%(/Users/RPM/Applications/RacePointMedia):%(/usr/local/bin)}/sclibridge)
   %x(#{SCB} writestate global.rubi 1)
   Process.daemon
   Process.setproctitle(%(rubi))
   def handle_client(c)
-    puts()
-    pid=fork{exec(%(irb -f --noecho --noprompt),:in=>c,:out=>c,:err=>c)}
+    pid=fork { exec(%(irb -f --noecho --noprompt),:in=>c,:out=>c,:err=>c) }
     c.close
-    Process.kill(%(TERM),pid)if pid
-    Process.wait(pid)if pid
+    Process.detach(pid) if pid
   end
   begin
     server=TCPServer.new(%(127.0.0.1),25809)
