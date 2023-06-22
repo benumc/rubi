@@ -13,7 +13,7 @@ $($SCL settrigger rubi 1 String global rubi "Not Equal" 1 0 "$GZN" "" "" 1 "SVC_
     STDIN.reopen(%(/dev/null))
     STDOUT.reopen(%(/dev/null), %(a))
     STDERR.reopen(%(/dev/null), %(a))
-    fd_max = %x(ulimit -n).to_i
+    fd_max = Process.getrlimit(:NOFILE)[0]
     3.upto(fd_max) do |i|
       begin
         IO.for_fd(i).close
