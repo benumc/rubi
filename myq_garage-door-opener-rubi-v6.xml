@@ -3,12 +3,14 @@
   xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="MyQ"
   model="Garage-Door-Opener-rubi-v6"
   device_class="Garage_controller" unique_identifier="none" minimum_component_engine_version="8.3"
-  rpm_xml_version="2.9">
+  rpm_xml_version="3.0">
   <notes>
     Setup
     Must set address on the wire to 127.0.0.1
+    MyQ Account Info need to be set in the state variables section
     Host must have rubi installed
     bash &lt;(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh")
+    
     
     You must edit the state variables username and password
     If you will be getting state feedback some other sensor, it is a good idea to set enable-polling to 0
@@ -17,6 +19,7 @@
     To obtain the correct device ids for your data table upload your project with these profiles and polling enabled.
     In system monitor you should see your devices IDs populate along with their doorstate.
     
+    3.0 User agent update and header parsing issues
     2.8 Fixed Typo in startup script
     2.7 Updated open/close action
     2.6 Complete auth re-write to manage oauth
@@ -200,7 +203,7 @@ MYQ_API_REDIRECT_URI = 'com.myqops://ios'
 MYQ_AUTH_ENDPOINT = 'https://partner-identity.myq-cloud.com/connect/authorize'
 MYQ_AUTH = 'https://partner-identity.myq-cloud.com'
 MYQ_TOKEN_URI = 'https://partner-identity.myq-cloud.com/connect/token'
-
+USER_AGENT = (0...8).map { (65 + rand(26)).chr }.join
 
 
 @log_num = 0
@@ -286,53 +289,54 @@ def login
     redirect_uri: 'com.myqops%3A%2F%2Fios',
     response_type: 'code',
     scope: 'MyQ_Residential+offline_access'
-  }.map{|k,v| "#{k}=#{v}"}.join("&")
+  }.map { |k, v| "#{k}=#{v}" }.join('&')
 
-  
-  response = `curl -isLH "User-Agent: null" '#{MYQ_AUTH_ENDPOINT}?#{request_string}'`
+  response = `curl -isLH "User-Agent: #{USER_AGENT}" '#{MYQ_AUTH_ENDPOINT}?#{request_string}'`
+
   cookies = response.scan(/[Ss]et-[Cc]ookie: ([AT][^;]+);/).flatten.last(2)
-  cookie = cookies.join("; ")
-  request_token = response[/_RequestVerificationToken" type="hidden" value="([^"]+)"/,1]
-  uri = response[/<form action="([^"]+)"/,1]
-  
-  login_body = { 
-    Email: @un, 
-    Password: @pw, 
-    "__RequestVerificationToken" => request_token
-  }.map{|k,v| "#{k}=#{v}"}.join("&")
-  
-  
+  cookie = cookies.join('; ')
+
+  request_token = response[/_RequestVerificationToken" type="hidden" value="([^"]+)"/, 1]
+  uri = response[/<form action="([^"]+)"/, 1]
+
+  login_body = {
+    Email: @un,
+    Password: @pw,
+    '__RequestVerificationToken' => request_token
+  }.map { |k, v| "#{k}=#{v}" }.join('&')
+
   login_headers = [
     "-H 'Content-Type: application/x-www-form-urlencoded'",
     "-H 'Cookie: #{cookie}'",
-    "-H 'User-Agent: null'",
+    "-H 'User-Agent: #{USER_AGENT}'"
   ].join(' ')
-  
-  
+
   response = `curl -si #{login_headers} -d '#{login_body}' '#{MYQ_AUTH}#{uri}'`
-  redirect_url = response[/Location: ([^\r]+)\r/,1]
-  cookie = response.scan(/[Ss]et-[Cc]ookie: ([Ti][^;]+);/).flatten.join("; ")
-  response = `curl -si -H 'User-Agent: null' -H 'Cookie: #{cookie}' '#{MYQ_AUTH}#{redirect_url}'`
-  redirect_url = response[/Location: ([^\r]+)\r/,1]
-  r_code = redirect_url[/code=([^&]+)&/,1]
-  r_scope = redirect_url[/scope=([^&]+)&/,1]
-  
-  
+
+  redirect_url = response[/[Ll]ocation: ([^\r]+)\r/, 1]
+  cookie = response.scan(/[Ss]et-[Cc]ookie: ([Ti][^;]+);/).flatten.join('; ')
+
+  response = `curl -si -H 'User-Agent: #{USER_AGENT}' -H 'Cookie: #{cookie}' '#{MYQ_AUTH}#{redirect_url}'`
+
+  redirect_url = response[/[Ll]ocation: ([^\r]+)\r/, 1]
+  r_code = redirect_url[/code=([^&]+)&/, 1]
+  r_scope = redirect_url[/scope=([^&]+)&/, 1]
+
   redirect_string = {
     client_id: MYQ_API_CLIENT_ID,
     client_secret: 'UD4DXnKyPWq25BSw',
     code: r_code,
     code_verifier: pkce_challenge.code_verifier,
-    grant_type: "authorization_code",
+    grant_type: 'authorization_code',
     redirect_uri: 'com.myqops%3A%2F%2Fios',
     scope: 'MyQ_Residential+offline_access'
-  }.map{|k,v| "#{k}=#{v}"}.join("&")
-  
+  }.map { |k, v| "#{k}=#{v}" }.join('&')
+
   headers = [
     "-H 'Content-Type: application/x-www-form-urlencoded'",
-    "-H 'User-Agent: null'",
+    "-H 'User-Agent: #{USER_AGENT}'"
   ].join(' ')
-  
+
   response = JSON.parse(`curl -s #{headers} -d '#{redirect_string}' '#{MYQ_TOKEN_URI}'`.chomp)
 
   @at = response['access_token']
@@ -353,7 +357,7 @@ def refresh_token
   return login unless @rt
   headers = [
     "-H 'Content-Type: application/x-www-form-urlencoded'",
-    "-H 'User-Agent: null'",
+    "-H 'User-Agent: #{USER_AGENT}'",
   ].join(' ')
   token_body = {
 	  client_id: MYQ_API_CLIENT_ID,
@@ -482,7 +486,7 @@ require 'json'
             <delay ms_delay="250"/>
           </command>
         </command_interface>
-	<execute_on_schedule period_ms="0"/>
+	      <execute_on_schedule period_ms="0"/>
       </action>
       <action name="poll_status">
         <command_interface interface="ip">
