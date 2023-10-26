@@ -72,7 +72,7 @@ end
 def handle_connection(sock)
   request_line = sock.gets("\r").chomp
   request_match = request_line.match(@request_pattern)
-  return setup_script(request_match.captures, sock) if request_match
+  return setup_script(request_match, sock) if request_match
 
   sock.puts('Incorrect pattern found, looking for cmd:run_script&prg:<script_program>&file:<name_of_profile_xml>[&options:<options to pass to script>]')
   sock.close
