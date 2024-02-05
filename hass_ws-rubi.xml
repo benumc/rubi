@@ -528,11 +528,9 @@
 require 'open-uri'
 DIRECTORY_PATH = "#{Dir.home('RPM')}/ruby/"
 def load_lib(file_name)
-  load "#{DIRECTORY_PATH}#{file_name}"
-rescue LoadError
-  curl = "https://pamesh.ddns.me/userfiles/admin/#{file_name}?download=1"
-  `curl -o '#{DIRECTORY_PATH}#{file_name}' '#{curl}'`
-  load "#{DIRECTORY_PATH}#{file_name}"
+  file_path =  "#{DIRECTORY_PATH}#{file_name}"
+  `curl -o '#{file_path}' '#{curl}'` unless File.exists?(file_path)
+  load file_path
 end
 Dir.mkdir(DIRECTORY_PATH) unless Dir.exist?(DIRECTORY_PATH)
 load_lib('select_controller.rb');nil
