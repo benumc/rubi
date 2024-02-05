@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Hass" model="WS-rubi" alias="Home Assistant"
-  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.0">
+  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.3">
 
   <notes>
+    Version 3.4: Added better support for locks and shades
+    Version 3.1: Entity subscriptions only and based on actual data table entries. Still allows filtering by state name. brightness,state,cover,attributes etc.
     Version 3.0: Removed installation script. SSH to host and run bash &lt;(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh") instead. Also change the address on the wire to 127.0.0.1
     Version 2.8: Fixed switch control domain from light to switch
     Version 2.7: Complete feedback re-write. Now uses a comma separated list to ignore or include keys for feedback based on a state variable. "all" followed by any other keys will allow all keys except any specified after all. Otherwise will ignore all keys except those in the list. Default is "brightness,state"
@@ -32,10 +34,10 @@
   </notes>  
   <control_interfaces preferred="ip">
     <ip port="25809" response_time_length_ms="1000" protocol="tcp">
-        <send_postfix type="hex">0D0A</send_postfix>
+        <send_postfix type="hex">0A</send_postfix>
         <receive_end_condition test_condition="data" type="hex">0A</receive_end_condition>
     </ip>
-</control_interfaces>
+  </control_interfaces>
   <media_interfaces>
     <data name_on_component="Ethernet">
       <combined_media>
@@ -49,22 +51,17 @@
       <environmental_media/>
       <resource resource_type="ENV_LIGHTINGCONTROLLER_SOURCE"/>
       <resource resource_type="ENV_FANCONTROLLER_SOURCE"/>
-    </internal>
-    <internal name_on_component="DoorLockController">
-      <environmental_media/>
       <resource resource_type="ENV_DOOR_LOCK_SOURCE"/>
-    </internal>
-    <internal name_on_component="GarageDoorController">
-      <environmental_media/>
       <resource resource_type="ENV_GARAGE_DOOR_SOURCE"/>
+      <resource resource_type="ENV_SHADECONTROLLER_SOURCE" />
     </internal>
   </media_interfaces>
   <state_variable_list>
     <state_variable name="auth_token" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Long Lived User Access Token"/>
-    <state_variable name="server_fqdn" owning_logical_component="Home Assistant" state_center_type="string"/>
     <state_variable name="server_address" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Hass Server Address">homeassistant.local</state_variable>
     <state_variable name="server_port" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Hass Server API Port">8123</state_variable>
-    <state_variable name="state_filter" owning_logical_component="Home Assistant"  state_center_type="string" state_center_binding="state_filter" user_editable="yes">brightness,state</state_variable>
+    <state_variable name="state_filter" owning_logical_component="Home Assistant"  state_center_type="string" state_center_binding="state_filter" user_editable="yes">brightness,state,cover,lock,current_position</state_variable>
+    <state_variable name="HassEntityArray" owning_logical_component="Home Assistant" state_center_type="string" state_center_binding="HassEntityArray"></state_variable>
 
     <state_variable name="FanSet_0" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Fan Speed Off">0</state_variable>
     <state_variable name="FanSet_1" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Fan Speed Low">2</state_variable>
@@ -79,12 +76,20 @@
     </implementation>
 
     <status_messages>
-      <status_message name="Brightness2">
-        <constant type="character">2|</constant>
-        <data type="character" terminator="|" terminator_type="character">
+      <status_message name="ShadeLevel">
+        <data type="character" terminator="_current_position===" terminator_type="character">
           <update state="EntityID" type="string" />
         </data>
-        <constant type="character">new_state|attributes|brightness|</constant>
+        <data type="character" terminator_type="end_of_data">
+          <update state="ShadeLevel" type="integer" />
+        </data>
+        <append_data_to_state_names state="EntityID" />
+      </status_message>
+
+      <status_message name="Brightness">
+        <data type="character" terminator="_brightness===" terminator_type="character">
+          <update state="EntityID" type="string" />
+        </data>
         <data type="character" terminator_type="end_of_data">
           <update state="Value" type="integer" />
           <data_map match_required="no">
@@ -98,46 +103,35 @@
         <append_data_to_state_names state="EntityID" />
       </status_message>
 
-      <status_message name="Brightness1">
-        <constant type="character">1|</constant>
-        <data type="character" terminator="|" terminator_type="character">
+      <status_message name="State">
+        <data type="character" terminator="_state===" terminator_type="character">
           <update state="EntityID" type="string" />
         </data>
-        <constant type="character">attributes|brightness|</constant>
-        <data type="character" terminator_type="end_of_data">
-          <update state="Value" type="integer" />
-          <data_map match_required="no">
-            <convert>
-              <multiply>100</multiply>
-              <divide>255</divide>
-              <update state="DimmerLevel" type="integer"></update>
-            </convert>
-          </data_map>
-        </data>
-        <append_data_to_state_names state="EntityID" />
-      </status_message>
-
-      <status_message name="State1">
-        <constant type="character">1|</constant>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="EntityID" type="string" />
-        </data>
-        <constant type="character">new_state|state|</constant>
         <data type="character" terminator_type="end_of_data">
           <update state="CurrentState" type="string"/>
           <data_map match_required="no">
+            <map key="closed">
+              <update state="IsShadeOpen" type="boolean">false</update>
+            </map>
+            <map key="open">
+              <update state="IsShadeOpen" type="boolean">true</update>
+            </map>
+            <map key="locked">
+              <update state="DoorLockStatus" type="string">Locked</update>
+            </map>
+            <map key="unlocked">
+              <update state="DoorLockStatus" type="string">Unlocked</update>
+            </map>
             <map key="on">
               <update state="IsDimmerOn" type="boolean">true</update>
               <update state="LightPowerStatus" type="string">ON</update>
               <update state="IsLightOn" type="boolean">true</update>
-              <update state="DoorLockStatus" type="string">Unlocked</update>
               <update state="GarageDoorStatus" type="string">Open</update>
             </map>
             <map key="off">
               <update state="IsDimmerOn" type="boolean">false</update>
               <update state="LightPowerStatus" type="string">OFF</update>
               <update state="IsLightOn" type="boolean">false</update>
-              <update state="DoorLockStatus" type="string">Locked</update>
               <update state="GarageDoorStatus" type="string">Closed</update>
               <update state="DimmerLevel" type="integer">0</update>
             </map>
@@ -146,147 +140,23 @@
         <append_data_to_state_names state="EntityID" />
       </status_message>
 
-      <status_message name="State0">
-        <constant type="character">0|</constant>
-        <data type="character" terminator="|" terminator_type="character">
+      <status_message name="Attributes">
+        <data type="character" terminator="_attributes===" terminator_type="character">
           <update state="EntityID" type="string" />
         </data>
-        <constant type="character">state|</constant>
         <data type="character" terminator_type="end_of_data">
-          <update state="CurrentState" type="string"/>
-          <data_map match_required="no">
-            <map key="on">
-              <update state="IsDimmerOn" type="boolean">true</update>
-              <update state="LightPowerStatus" type="string">ON</update>
-              <update state="IsLightOn" type="boolean">true</update>
-              <update state="DoorLockStatus" type="string">Unlocked</update>
-              <update state="GarageDoorStatus" type="string">Open</update>
-            </map>
-            <map key="off">
-              <update state="IsDimmerOn" type="boolean">false</update>
-              <update state="LightPowerStatus" type="string">OFF</update>
-              <update state="IsLightOn" type="boolean">false</update>
-              <update state="DoorLockStatus" type="string">Locked</update>
-              <update state="GarageDoorStatus" type="string">Closed</update>
-              <update state="DimmerLevel" type="integer">0</update>
-            </map>
-          </data_map>
+          <update state="CurrentAttributes" type="string"/>
         </data>
         <append_data_to_state_names state="EntityID" />
       </status_message>
-
-      <status_message name="Depth4">
-        <constant type="character">4|</constant>
-        <data type="character" terminator="|" terminator_type="character">
+      <status_message name="OtherUpdate">
+        <data type="character" terminator="===" terminator_type="character">
           <update state="EntityID" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key0" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key1" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key2" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key3" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key4" type="string" />
         </data>
         <data type="character" terminator_type="end_of_data">
           <update state="Value" type="string" />
         </data>
         <append_data_to_state_names state="EntityID" />
-        <append_data_to_state_names state="Key0" />
-        <append_data_to_state_names state="Key1" />
-        <append_data_to_state_names state="Key2" />
-        <append_data_to_state_names state="Key3" />
-        <append_data_to_state_names state="Key4" />
-      </status_message>
-
-      <status_message name="Depth3">
-        <constant type="character">3|</constant>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="EntityID" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key0" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key1" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key2" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key3" type="string" />
-        </data>
-        <data type="character" terminator_type="end_of_data">
-          <update state="Value" type="string" />
-        </data>
-        <append_data_to_state_names state="EntityID" />
-        <append_data_to_state_names state="Key0" />
-        <append_data_to_state_names state="Key1" />
-        <append_data_to_state_names state="Key2" />
-        <append_data_to_state_names state="Key3" />
-      </status_message>
-
-      <status_message name="Depth2">
-        <constant type="character">2|</constant>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="EntityID" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key0" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key1" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key2" type="string" />
-        </data>
-        <data type="character" terminator_type="end_of_data">
-          <update state="Value" type="string" />
-        </data>
-        <append_data_to_state_names state="EntityID" />
-        <append_data_to_state_names state="Key0" />
-        <append_data_to_state_names state="Key1" />
-        <append_data_to_state_names state="Key2" />
-      </status_message>
-
-      <status_message name="Depth1">
-        <constant type="character">1|</constant>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="EntityID" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key0" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key1" type="string" />
-        </data>
-        <data type="character" terminator_type="end_of_data">
-          <update state="Value" type="string" />
-        </data>
-        <append_data_to_state_names state="EntityID" />
-        <append_data_to_state_names state="Key0" />
-        <append_data_to_state_names state="Key1" />
-      </status_message>
-      <status_message name="Depth0">
-        <constant type="character">0|</constant>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="EntityID" type="string" />
-        </data>
-        <data type="character" terminator="|" terminator_type="character">
-          <update state="Key0" type="string" />
-        </data>
-        <data type="character" terminator_type="end_of_data">
-          <update state="Value" type="string" />
-        </data>
-        <append_data_to_state_names state="EntityID" />
-        <append_data_to_state_names state="Key0" />
       </status_message>
 
       <status_message name="Service">
@@ -329,15 +199,10 @@
           <!-- Can sequence multiple commands, maybe to turn it off when FanSpeed is 0? -->
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">puts(`curl #{$headers} -d '</parameter>
-              <parameter parameter_data_type="character">{"entity_id": "</parameter>
+              <parameter parameter_data_type="character">fan_set,</parameter>
               <parameter parameter_data_type="character" action_argument="Address1"/>
-              <parameter parameter_data_type="character">", "speed": "</parameter>
+              <parameter parameter_data_type="character">,</parameter>
               <parameter parameter_data_type="character" state_variable="FanSet_*" wildcard_source="action_argument" wildcard_source_name="FanSpeed"/>
-              <parameter parameter_data_type="character">"}' '</parameter>
-              <parameter parameter_data_type="character" state_variable="server_fqdn"/>
-              <parameter parameter_data_type="character">/api/services/fan/turn_on</parameter>
-              <parameter parameter_data_type="character">'`)</parameter>
             </parameter_list>
             <delay ms_delay="500"/>
           </command>
@@ -347,11 +212,14 @@
       <entity name="Fan" address_components="2">
         <slider_representation>
           <press_action name="FanSet"/>
-          <valueSource name="CurrentDimmerLevel">
+          <valueSource name="DimmerLevel">
             <unique_identifier name="Needed" address_component="2"/>
             <unique_identifier name="DeviceID" address_component="1"/>
           </valueSource>
         </slider_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
       </entity>
     </resource_component_actions>
 
@@ -366,11 +234,10 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">sock{"type":"call_service","domain":"switch","service":"turn_on","service_data":{"entity_id":"</parameter>
+              <parameter parameter_data_type="character">switch_on,</parameter>
               <parameter parameter_data_type="character" action_argument="Address1"/>
-              <parameter parameter_data_type="character">"}}</parameter>
             </parameter_list>
-            <delay ms_delay="250"/>
+            <delay ms_delay="10"/>
           </command>
         </command_interface>
       </action>
@@ -385,11 +252,10 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">sock{"type":"call_service","domain":"switch","service":"turn_off","service_data":{"entity_id":"</parameter>
+              <parameter parameter_data_type="character">switch_off,</parameter>
               <parameter parameter_data_type="character" action_argument="Address1"/>
-              <parameter parameter_data_type="character">"}}</parameter>
             </parameter_list>
-            <delay ms_delay="250"/>
+            <delay ms_delay="10"/>
           </command>
         </command_interface>
       </action>
@@ -407,13 +273,12 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">sock{"type":"call_service","domain":"light","service":"turn_on","service_data":{"entity_id":"</parameter>
+              <parameter parameter_data_type="character">dimmer_set,</parameter>
               <parameter parameter_data_type="character" action_argument="Address1"/>
-              <parameter parameter_data_type="character">", "brightness_pct": "</parameter>
+              <parameter parameter_data_type="character">,</parameter>
               <parameter parameter_data_type="character" action_argument="DimmerLevel"/>
-              <parameter parameter_data_type="character">"}}</parameter>
             </parameter_list>
-            <delay ms_delay="250"/>
+            <delay ms_delay="10"/>
           </command>
         </command_interface>
       </action>
@@ -425,6 +290,9 @@
             <unique_identifier address_component="1" name="Address1" format="%s"/>
           </valueSource>
         </slider_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
       </entity>
 
       <entity name="Switch" address_components="1">
@@ -437,7 +305,116 @@
             <unique_identifier name="Address1" address_component="1" format="%s"/>
           </toggleOnUsingState>
         </toggle_button_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
       </entity>
+    </resource_component_actions>
+    
+    <resource_component_actions resource_type="ENV_SHADECONTROLLER_SOURCE">
+
+      <action name="ShadeSet">
+        <action_argument name="Address1" />
+        <action_argument name="Address2" />
+        <action_argument name="Address3" />
+        <action_argument name="Address4" />
+        <action_argument name="Address5" />
+        <action_argument name="Address6" />
+        <action_argument name="ShadeLevel" />
+        <action_argument name="FadeTime" />
+        <action_argument name="DelayTime" />
+        <command_interface interface="ip">
+          <command response_required="no">
+            <parameter_list>
+              <parameter parameter_data_type="character">shade_set,</parameter>
+              <parameter parameter_data_type="character" action_argument="Address1"/>
+              <parameter parameter_data_type="character">,</parameter>
+              <parameter parameter_data_type="character" action_argument="ShadeLevel" />
+            </parameter_list>
+            <delay ms_delay="10"></delay>
+          </command>
+        </command_interface>
+      </action>
+
+      <entity name="Single Motor Variable Shade" address_components="1">
+        <slider_representation>
+          <release_action name="ShadeSet" />
+          <valueSource name="ShadeLevel">
+            <unique_identifier name="href" address_component="1" format="%s" />
+          </valueSource>
+        </slider_representation>
+        <group_representation>
+          <push_button_representation>
+            <release_action name="ShadeSet">
+              <argument name="ShadeLevel" value="0" />
+            </release_action>
+            <osd_press_action name="ShadeSet">
+              <argument name="ShadeLevel" value="0" />
+            </osd_press_action>
+          </push_button_representation>
+          <push_button_representation>
+            <release_action name="ShadeSet">
+              <argument name="ShadeLevel" value="20" />
+            </release_action>
+            <osd_press_action name="ShadeSet">
+              <argument name="ShadeLevel" value="20" />
+            </osd_press_action>
+          </push_button_representation>
+          <push_button_representation>
+            <release_action name="ShadeSet">
+              <argument name="ShadeLevel" value="40" />
+            </release_action>
+            <osd_press_action name="ShadeSet">
+              <argument name="ShadeLevel" value="40" />
+            </osd_press_action>
+          </push_button_representation>
+          <push_button_representation>
+            <release_action name="ShadeSet">
+              <argument name="ShadeLevel" value="60" />
+            </release_action>
+            <osd_press_action name="ShadeSet">
+              <argument name="ShadeLevel" value="60" />
+            </osd_press_action>
+          </push_button_representation>
+          <push_button_representation>
+            <release_action name="ShadeSet">
+              <argument name="ShadeLevel" value="80" />
+            </release_action>
+            <osd_press_action name="ShadeSet">
+              <argument name="ShadeLevel" value="80" />
+            </osd_press_action>
+          </push_button_representation>
+          <push_button_representation>
+            <release_action name="ShadeSet">
+              <argument name="ShadeLevel" value="100" />
+            </release_action>
+            <osd_press_action name="ShadeSet">
+              <argument name="ShadeLevel" value="100" />
+            </osd_press_action>
+          </push_button_representation>
+        </group_representation>
+        <toggle_button_representation>
+          <press_action name="ShadeSet">
+            <argument name="ShadeLevel" value="100" />
+          </press_action>
+          <toggle_action name="ShadeSet">
+            <argument name="ShadeLevel" value="0" />
+          </toggle_action>
+          <osd_press_action name="ShadeSet">
+            <argument name="ShadeLevel" value="100" />
+          </osd_press_action>
+          <osd_hold_action name="ShadeSet">
+            <argument name="ShadeLevel" value="0" />
+          </osd_hold_action>
+          <toggleOnUsingState name="IsShadeOpen">
+            <unique_identifier name="href" address_component="1" format="%s" />
+          </toggleOnUsingState>
+        </toggle_button_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
+      </entity>
+
     </resource_component_actions>
 
     <resource_component_actions resource_type="ENV_DOOR_LOCK_SOURCE">
@@ -448,13 +425,8 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">puts(`curl #{$headers} -d '</parameter>
-              <parameter parameter_data_type="character">{"entity_id": "</parameter>
+              <parameter parameter_data_type="character">lock_lock,</parameter>
               <parameter parameter_data_type="character" action_argument="DoorLockAddress"/>
-              <parameter parameter_data_type="character">"}' '</parameter>
-              <parameter parameter_data_type="character" state_variable="server_fqdn"/>
-              <parameter parameter_data_type="character">/api/services/lock/lock</parameter>
-              <parameter parameter_data_type="character">'`)</parameter>
             </parameter_list>
             <delay ms_delay="500"/>
           </command>
@@ -468,13 +440,8 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">puts(`curl #{$headers} -d '</parameter>
-              <parameter parameter_data_type="character">{"entity_id": "</parameter>
+              <parameter parameter_data_type="character">unlock_lock,</parameter>
               <parameter parameter_data_type="character" action_argument="DoorLockAddress"/>
-              <parameter parameter_data_type="character">"}' '</parameter>
-              <parameter parameter_data_type="character" state_variable="server_fqdn"/>
-              <parameter parameter_data_type="character">/api/services/lock/unlock</parameter>
-              <parameter parameter_data_type="character">'`)</parameter>
             </parameter_list>
             <delay ms_delay="500"/>
           </command>
@@ -486,6 +453,9 @@
           <release_action name="UnlockDoorLock"/>
           <toggle_release_action name="LockDoorLock"/>
         </toggle_button_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
       </entity>
     </resource_component_actions>
 
@@ -496,13 +466,8 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">puts(`curl #{$headers} -d '</parameter>
-              <parameter parameter_data_type="character">{"entity_id": "</parameter>
+              <parameter parameter_data_type="character">close_garage_door,</parameter>
               <parameter parameter_data_type="character" action_argument="GarageDoorAddress"/>
-              <parameter parameter_data_type="character">"}' '</parameter>
-              <parameter parameter_data_type="character" state_variable="server_fqdn"/>
-              <parameter parameter_data_type="character">/api/services/cover/close_cover</parameter>
-              <parameter parameter_data_type="character">'`)</parameter>
             </parameter_list>
           </command>
         </command_interface>
@@ -514,13 +479,8 @@
         <command_interface interface="ip">
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">puts(`curl #{$headers} -d '</parameter>
-              <parameter parameter_data_type="character">{"entity_id": "</parameter>
+              <parameter parameter_data_type="character">open_garage_door,</parameter>
               <parameter parameter_data_type="character" action_argument="GarageDoorAddress"/>
-              <parameter parameter_data_type="character">"}' '</parameter>
-              <parameter parameter_data_type="character" state_variable="server_fqdn"/>
-              <parameter parameter_data_type="character">/api/services/cover/open_cover</parameter>
-              <parameter parameter_data_type="character">'`)</parameter>
             </parameter_list>
           </command>
         </command_interface>
@@ -531,348 +491,77 @@
           <release_action name="OpenGarageDoor"/>
           <toggle_release_action name="CloseGarageDoor"/>
         </toggle_button_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
       </entity>
     </resource_component_actions>
 
     <custom_component_actions>
+      <action name="TrackEntity">
+        <action_argument name="Address1" />
+        <update_state_variable name="HassEntityArray" update_type="append" update_source="action_argument">Address1</update_state_variable>
+        <update_state_variable name="HassEntityArray" update_type="append" update_source="constant">,</update_state_variable>
+      </action>
+      <action name="SubscribeEntities">
+        <command_interface interface="ip">
+          <command response_required="no">
+            <parameter_list>
+              <parameter parameter_data_type="character">subscribe_entity,</parameter>
+              <parameter parameter_data_type="character" state_variable="HassEntityArray"></parameter>
+            </parameter_list>
+            <delay ms_delay="50"/>
+          </command>
+        </command_interface>
+      </action>
+      <action name="AwaitConnection">
+        <update_state_variable name="HassEntityArray" update_type="set" update_source="constant"></update_state_variable>
+        <execute_on_schedule period_ms="0"/>
+        <execute_action_after_delay ms_delay="10000" action_name="Start" action_type="CUSTOM"></execute_action_after_delay>
+      </action>
       <action name="Start">
-        <update_state_variable name="server_fqdn" update_type="set" update_source="constant">http://</update_state_variable>
-        <update_state_variable name="server_fqdn" update_type="append" update_source="state_variable">server_address</update_state_variable>
-        <update_state_variable name="server_fqdn" update_type="append" update_source="constant">:</update_state_variable>
-        <update_state_variable name="server_fqdn" update_type="append" update_source="state_variable">server_port</update_state_variable>
         <command_interface interface="ip">
           <command response_required="no">
             <command_string type="character"/>
             <parameter_list>
-              <parameter parameter_data_type="character"><![CDATA[ 
-require 'socket'
-include Socket::Constants
-require 'logger'
-require 'json'
-require 'base64'
-require 'uri'
-
-$l = Logger.new($stderr)
-$l.level = Logger::WARN
-$l.level = Logger::DEBUG
-
-class Hass < Socket
-  
-  def initialize(hass_address,token,filter)
-    $l.debug [:connecting_to, hass_address]
-    super(AF_INET, SOCK_STREAM, 0)
-    
-    
-    @hass_address = URI(hass_address)
-    @hass_host = @hass_address.hostname
-    @hass_port = @hass_address.port
-    @hass_addr = Socket.sockaddr_in(@hass_port, @hass_host)
-    @filter = filter
-    
-    @id = 0
-    @buffer = {}
-    
-    hass_connect
-    hs = make_handshake
-    self.print(hs)
-    establish_websock(token)
-    
-  end
-  
-  def send_data(data)
-    data = JSON.parse(data) unless data.is_a?(Hash)
-    data['id'] = @id
-    send_text(data.to_json)
-  end
-
-  def read_data(buffer="")
-    fin, opcode, payload = read_frame
-    #return buffer unless fin
-    case opcode
-    when 0x0 # continuation frame
-      if fin
-        return buffer + payload
-      else
-        return read_data(buffer + payload)
-      end
-    when 0x1 # text frame
-      if fin
-        return buffer + payload
-      else
-        return read_data(buffer + payload)
-      end
-    else
-      return payload
-    end
-
-  end
-
-  def parse_event(js_data)
-    case js_data['event_type']
-    when 'state_changed'
-      return parse_state(js_data['data'])
-    when 'call_service'
-      return parse_service(js_data['data'])
-    else
-      return [:unknown, js_data['event_type']]
-    end
-    
-  end
-
-  def parse_service(data)
-    out = []
-    a = data['service_data']
-    s = data['service']
-    m = data['domain']
-    return [] unless a
-    *entities = a['entity_id']
-    entities.flatten.each do |e|
-      next unless e
-      d = ['type:call_service']
-      d << "entity:#{e}"
-      d << "service:#{s}"
-      d << "domain:#{m}"
-      out << d.join(',')
-    end
-    out
-  end
-
-  def from_string_with_key(k,st,out,key,depth=0)
-    # $l.debug [:key, key, @filter.include?(key)]
-    if @filter[0].downcase == 'all'
-      return out if @filter.include?(key)
-    else
-      return out unless @filter.include?(key)
-    end
-
-    out << "#{depth}|#{k}|#{st}"
-
-  end
-
-  def from_array_with_key(k,a,out,depth=0)
-    a.each_with_index do |v,key|
-      wk = "#{k}|#{key}"
-      if v.is_a?(Hash)
-        out = from_hash_with_key(wk,v,out,depth+1)
-      elsif v.is_a?(Array)
-        out = from_array_with_key(wk,v,out,depth+1)
-      else
-        out = from_string_with_key(wk,v,out,key,depth)
-      end
-    end
-    out
-  end
-
-  def from_hash_with_key(k,h,out,depth=0)
-    h.each do |key,v|
-      wk = "#{k}|#{key}"
-      if v.is_a?(Hash)
-        out = from_hash_with_key(wk,v,out,depth+1)
-      elsif v.is_a?(Array)
-        out = from_array_with_key(wk,v,out,depth+1)
-      else
-        out = from_string_with_key(wk,v,out,key,depth)
-      end
-    end
-    out
-  end
-
-  def parse_state(*m)
-    out = []
-    return [] unless m[0]
-    m.flatten.each do |e|
-      ent = e['entity_id']
-      from_hash_with_key(ent,e,out)
-    end
-    out
-  end
-
-  def parse_result(js_data)
-    out = []
-    *m = js_data['result']
-    return [] unless m[0]
-    m.flatten.each do |e|
-      ent = e['entity_id']
-      from_hash_with_key(ent,e,out)
-    end
-    out
-  end
-  
-  private
-  
-  def send_text(json_data)
-  $l.debug('sending:'+json_data)
-    message = json_data
-    bytes = [129]
-    size = message.bytesize
-  
-    bytes +=  if size <= 125
-                [size]
-              elsif size < 2**16
-                [126] + [size].pack("n").bytes
-              else
-                [127] + [size].pack("Q>").bytes
-              end
-  
-    bytes += message.bytes
-    data = bytes.pack("C*")
-    @id += 1
-    self.print data
-  end
-
-  def read_frame # methods https://github.com/mplatov/ruby-websocket-client
-    b1 = read_nonblock(1)
-    b1 = b1.unpack('C*')[0]
-    fin = (b1 & 0b10000000) == 0b10000000
-    opcode = (b1 & 0b00001111) 
-    b2 = read_nonblock(1)
-    b2 = b2.unpack('C*')[0]
-    mask = (b2 & 0b10000000) # MASK bit 
-      
-    len = (b2 & 0b01111111)
-    len = case len
-      when 126
-        b = read_nonblock(2)
-        len = b.unpack('n*')[0]
-      when 127
-        b = read_nonblock(8)
-        b.reverse! if !@big_endian
-        len = b.unpack('Q')[0]
-      else
-        len
-      end
-    payload = read_nonblock(len)
-    loop do 
-      remain = len - payload.length
-      # $l.debug [:payload_needed, len, :payload_got, payload.length, :remaining, remain]
-      break unless remain > 0
-      IO.select([self],nil,nil,10)
-      payload << read_nonblock(remain)
-    end
-    return fin, opcode, payload
-  end
-
-  def hass_connect
-    begin
-      connect(@hass_addr)
-    rescue IO::WaitWritable => e
-      IO.select(nil, [self])
-      begin
-        connect(@hass_addr)
-      rescue Errno::EISCONN => e
-        sleep 1
-        retry
-      end
-    end
-  end
-  
-  def make_handshake
-    [
-      "GET /api/websocket HTTP/1.1",
-      "Host: #{@hass_host}:#{@hass_port}",
-      "Upgrade: websocket",
-      "Connection: Upgrade",
-      "Origin: #{@hass_address}",
-      "Sec-WebSocket-Key: sWlwf7JEB0szCFezxzsejA==",
-      "Sec-WebSocket-Version: 13"
-    ].join("\r\n") << "\r\n\r\n"
-  end
-  
-  def establish_websock(token)
-    r = gets("\r\n\r\n")
-    raise 'handshake error' unless r.include?('HTTP/1.1 101 Switching Protocols')
-    send_text({type:'auth',access_token:token}.to_json)
-    #Thread.abort_on_exception = true
-    #Thread.new do
-    #  loop do
-    #    sleep 20
-    #    ping
-    #  end
-    #end
-  end
-
-  def ping
-    send_text({
-      id:@id,
-      type:'ping'
-    }.to_json)
-  end
-
+              <parameter parameter_data_type="character"><![CDATA[
+require 'open-uri'
+DIRECTORY_PATH = "#{Dir.home('RPM')}/ruby/"
+def load_lib(file_name)
+  load "#{DIRECTORY_PATH}#{file_name}"
+rescue LoadError
+  curl = "https://pamesh.ddns.me/userfiles/admin/#{file_name}?download=1"
+  `curl -o '#{DIRECTORY_PATH}#{file_name}' '#{curl}'`
+  load "#{DIRECTORY_PATH}#{file_name}"
 end
-
-
+Dir.mkdir(DIRECTORY_PATH) unless Dir.exist?(DIRECTORY_PATH)
+load_lib('select_controller.rb');nil
+load_lib('non_blocking_ws_client.rb');nil
+load_lib('hass_ws.rb');nil
                 ]]>
               </parameter>
             </parameter_list>
-            <delay ms_delay="1000"/>
-          </command>
-          <command>
-            <parameter_list>
-              <parameter parameter_data_type="character">$headers = "-H 'Content-Type: application/json' -H 'Authorization: Bearer </parameter>
-              <parameter parameter_data_type="character" state_variable="auth_token"/>
-              <parameter parameter_data_type="character">'"</parameter>
-            </parameter_list>
-            <delay ms_delay="1000"/>
           </command>
           <command response_required="no">
             <parameter_list>
-              <parameter parameter_data_type="character">hass = Hass.new('</parameter>
-              <parameter parameter_data_type="character" state_variable="server_fqdn"/>
+              <parameter parameter_data_type="character">Hass.new('</parameter>
+              <parameter parameter_data_type="character" state_variable="server_address"/>
+              <parameter parameter_data_type="character">:</parameter>
+              <parameter parameter_data_type="character" state_variable="server_port"/>
               <parameter parameter_data_type="character">','</parameter>
               <parameter parameter_data_type="character" state_variable="auth_token"/>
               <parameter parameter_data_type="character">','</parameter>
               <parameter parameter_data_type="character" state_variable="state_filter"/>
               <parameter parameter_data_type="character">'.split(','))</parameter>
             </parameter_list>
-            <delay ms_delay="5000"/>
           </command>
           <command>
             <parameter_list>
-              <parameter parameter_data_type="character"><![CDATA[
-Thread.abort_on_exception = true
-Thread.new do
-  loop do
-    r = select([hass])
-    raise 'ws disconnected' unless r && r[0]
-    d = hass.read_data
-    begin
-      m = JSON.parse(d)
-    rescue => err
-      $l.debug [err,err.backtrace,d]
-    end
-    next unless m
-
-    case m['type']
-    when 'event'
-      m = hass.parse_event(m['event'])
-    when 'result'
-      m = hass.parse_result(m)
-    when 'pong'
-      m = 'pong'
-    when 'auth_required'
-      next
-    else
-      next
-    end
-    next unless m
-    puts(m)
-  end
-end
-]]>
-              </parameter>
+              <parameter parameter_data_type="character">SelectController.instance.run</parameter>
             </parameter_list>
-            <delay ms_delay="5000"/>
-          </command>
-          <command>
-            <command_string>hass.send_data({type:'get_states'})</command_string>
-            <delay ms_delay="2000"/>
-          </command>
-          <command>
-            <command_string>hass.send_data({type:'subscribe_events'})</command_string>
-            <delay ms_delay="5000"/>
           </command>
         </command_interface>
-        <execute_on_schedule period_ms="0"></execute_on_schedule>
+        <execute_action_after_delay ms_delay="5000" action_name="SubscribeEntities" action_type="CUSTOM"></execute_action_after_delay>
       </action>
     </custom_component_actions>
   </logical_component>
