@@ -538,6 +538,7 @@ Dir.mkdir(DIRECTORY_PATH) unless Dir.exist?(DIRECTORY_PATH)
 load_lib('select_controller.rb');nil
 load_lib('non_blocking_ws_client.rb');nil
 load_lib('hass_ws.rb');nil
+load_lib('app_logger.rb');nil
                 ]]>
               </parameter>
             </parameter_list>
