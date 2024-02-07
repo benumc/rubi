@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Hass" model="WS-rubi" alias="Home Assistant"
-  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.5">
+  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.6">
 
   <notes>
+    Version 3.6: Fixed another typo in lib loading.
     Version 3.5: Fixed typo in lib loading.
     Version 3.4: Added better support for locks and shades
     Version 3.1: Entity subscriptions only and based on actual data table entries. Still allows filtering by state name. brightness,state,cover,attributes etc.
@@ -526,18 +527,18 @@
             <command_string type="character"/>
             <parameter_list>
               <parameter parameter_data_type="character"><![CDATA[
-require 'open-uri'
 DIRECTORY_PATH = "#{Dir.home('RPM')}/ruby/"
-def load_lib(file_name)
-  file_path =  "#{DIRECTORY_PATH}#{file_name}"
-  `curl -o '#{file_path}' 'https://raw.githubusercontent.com/benumc/rubi/main/#{file_name}'` unless File.exists?(file_path)
-  load file_path
+def load_libs(file_names)
+  file_names.map do |file_name|
+    file_path =  "#{DIRECTORY_PATH}#{file_name}"
+    `curl -o '#{file_path}' 'https://raw.githubusercontent.com/benumc/rubi/main/#{file_name}'` unless File.exists?(file_path)
+    file_path
+  end.each do |file_path|
+    load file_path
+  end
 end
 Dir.mkdir(DIRECTORY_PATH) unless Dir.exist?(DIRECTORY_PATH)
-load_lib('select_controller.rb');nil
-load_lib('non_blocking_ws_client.rb');nil
-load_lib('hass_ws.rb');nil
-load_lib('app_logger.rb');nil
+load_libs(%w[select_controller.rb non_blocking_ws_client.rb app_logger.rb hass_ws.rb]);nil
                 ]]>
               </parameter>
             </parameter_list>
