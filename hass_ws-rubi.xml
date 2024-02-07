@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Hass" model="WS-rubi" alias="Home Assistant"
-  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.3">
+  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.5">
 
   <notes>
+    Version 3.5: Fixed typo in lib loading.
     Version 3.4: Added better support for locks and shades
     Version 3.1: Entity subscriptions only and based on actual data table entries. Still allows filtering by state name. brightness,state,cover,attributes etc.
     Version 3.0: Removed installation script. SSH to host and run bash &lt;(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh") instead. Also change the address on the wire to 127.0.0.1
