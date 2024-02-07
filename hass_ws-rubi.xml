@@ -529,7 +529,7 @@ require 'open-uri'
 DIRECTORY_PATH = "#{Dir.home('RPM')}/ruby/"
 def load_lib(file_name)
   file_path =  "#{DIRECTORY_PATH}#{file_name}"
-  `curl -o '#{file_path}' '#{curl}'` unless File.exists?(file_path)
+  `curl -o '#{file_path}' 'https://raw.githubusercontent.com/benumc/rubi/main/#{file_name}'` unless File.exists?(file_path)
   load file_path
 end
 Dir.mkdir(DIRECTORY_PATH) unless Dir.exist?(DIRECTORY_PATH)
