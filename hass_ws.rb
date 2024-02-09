@@ -63,8 +63,8 @@ module HassMessageParsingMethods
 
     atr = message['attributes']
     case atr
-    when Hash then update_with_hash(eid, eid, atr)
-    when Array then update_with_array(eid, eid, atr)
+    when Hash then update_with_hash(eid, atr)
+    when Array then update_with_array(eid, atr)
     end
   end
 
