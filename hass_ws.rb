@@ -211,8 +211,7 @@ end
 class Hass
   include HassMessageParsingMethods
   include HassRequests
-  include TimeoutInterface
-  PREFIX = ''
+
   POSTFIX = "\n"
 
   def initialize(hass_address, token, filter = ['all'])
@@ -232,6 +231,7 @@ class Hass
       type: 'subscribe_entities',
       entity_ids: entity_id.flatten
     )
+    send_json(type: 'subscribe_events') if SUBSCRIBE_ALL_EVENTS
   end
 
   def send_data(**data)
