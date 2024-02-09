@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Hass" model="WS-rubi" alias="Home Assistant"
-  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.6">
+  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.7">
 
   <notes>
+    Version 3.7: Updated script loader to allow specifying script path, server url, and force updating on load.
     Version 3.6: Fixed another typo in lib loading.
     Version 3.5: Fixed typo in lib loading.
     Version 3.4: Added better support for locks and shades
@@ -59,6 +60,12 @@
     </internal>
   </media_interfaces>
   <state_variable_list>
+    <state_variable name="local_script_path" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes">#{Dir.home('RPM')}/home_assistant/</state_variable>
+    <state_variable name="required_libs" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes">hass_ws.rb select_controller.rb non_blocking_ws_client.rb app_logger.rb</state_variable>
+    <state_variable name="force_script_update_on_load" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes">NO</state_variable>
+    <state_variable name="lib_server_url" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes">https://raw.githubusercontent.com/benumc/rubi/main/</state_variable>
+    <state_variable name="subscribe_all_events" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes">NO</state_variable>
+
     <state_variable name="auth_token" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Long Lived User Access Token"/>
     <state_variable name="server_address" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Hass Server Address">homeassistant.local</state_variable>
     <state_variable name="server_port" owning_logical_component="Home Assistant" state_center_type="string" user_editable="yes" note="Hass Server API Port">8123</state_variable>
@@ -526,20 +533,46 @@
           <command response_required="no">
             <command_string type="character"/>
             <parameter_list>
+              <parameter parameter_data_type="character">HASS_SUBSCRIBE_ALL_EVENTS = ('</parameter>
+              <parameter parameter_data_type="character" state_variable="subscribe_all_events" />
+              <parameter parameter_data_type="character">' != 'NO');</parameter>
+
+              <parameter parameter_data_type="character">HASS_DIRECTORY_PATH = "</parameter>
+              <parameter parameter_data_type="character" state_variable="local_script_path" />
+              <parameter parameter_data_type="character">";</parameter>
+
+              <parameter parameter_data_type="character">HASS_FORCE_UPDATE = ('</parameter>
+              <parameter parameter_data_type="character" state_variable="force_script_update_on_load" />
+              <parameter parameter_data_type="character">' != 'NO');</parameter>
+              
+              <parameter parameter_data_type="character">HASS_LIBRARY_URL = '</parameter>
+              <parameter parameter_data_type="character" state_variable="lib_server_url" />
+              <parameter parameter_data_type="character">';</parameter>
+
+              <parameter parameter_data_type="character">HASS_REQUIRED_FILES = %w[</parameter>
+              <parameter parameter_data_type="character" state_variable="required_libs" />
+              <parameter parameter_data_type="character">];</parameter>
               <parameter parameter_data_type="character"><![CDATA[
-DIRECTORY_PATH = "#{Dir.home('RPM')}/ruby/"
-def load_libs(file_names)
-  file_names.map do |file_name|
-    file_path =  "#{DIRECTORY_PATH}#{file_name}"
-    `curl -o '#{file_path}' 'https://raw.githubusercontent.com/benumc/rubi/main/#{file_name}'` unless File.exists?(file_path)
-    file_path
-  end.each do |file_path|
-    load file_path
+
+
+def download_files(file_names)
+  file_names.each do |file_name|
+    file_path = "#{HASS_DIRECTORY_PATH}#{file_name}"
+
+    p([:downloading_file?, file_name, HASS_FORCE_UPDATE && File.exists?(file_path)])
+    next if File.exists?(file_path) && !HASS_FORCE_UPDATE
+
+    `curl -s -o '#{file_path}' '#{HASS_LIBRARY_URL}#{file_name}'`
   end
 end
-Dir.mkdir(DIRECTORY_PATH) unless Dir.exist?(DIRECTORY_PATH)
-load_libs(%w[select_controller.rb non_blocking_ws_client.rb app_logger.rb hass_ws.rb]);nil
+
+Dir.mkdir(HASS_DIRECTORY_PATH) unless Dir.exist?(HASS_DIRECTORY_PATH)
+download_files(HASS_REQUIRED_FILES)
+p("Loading: #{HASS_DIRECTORY_PATH}hass_ws.rb")
+load "#{HASS_DIRECTORY_PATH}hass_ws.rb"
+
                 ]]>
+
               </parameter>
             </parameter_list>
           </command>
