@@ -5,7 +5,8 @@ require 'json'
 
 require_relative 'app_logger'
 
-LOG = AppLogger.setup(__FILE__)
+HASS_DIRECTORY_PATH = "#{Dir.home}/home_assistant/" unless defined?(HASS_DIRECTORY_PATH)
+LOG = AppLogger.setup(__FILE__, HASS_DIRECTORY_PATH) unless defined?(LOG)
 LOG.level = Logger::DEBUG
 
 require_relative 'select_controller'
