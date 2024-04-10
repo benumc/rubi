@@ -1,22 +1,16 @@
 # rubi
 Interactive ruby implementation for savant profiles.
-
 Listens on 127.0.0.1 TCP port 25809
-
 Runs code at each lf while maintaining the current binding. 
-
 RPM terminal will print errors and the profile will reconnect when errors are encoutered.
 
 Install by opening a terminal connection to host and running the following command:
-
 bash <(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh")
 
 Uninstall by connecting the same way and running:
-
-sclibridge removetrigger rubi && sleep 5 && pkill -f rubi
+sclibridge removetrigger rubi && sclibridge removetrigger rbwd && sleep 5 && pkill -f rubi
 
 rubi based profiles should use the following control interfaces:
-
   <control_interfaces preferred="ip">
     <ip port="25809" response_time_length_ms="1000" protocol="tcp">
       <send_postfix type="hex">0A</send_postfix>
