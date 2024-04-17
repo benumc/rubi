@@ -201,6 +201,13 @@ module HassRequests
     )
   end
 
+  def button_press(entity_id)
+    send_data(
+      type: :call_service, domain: :button, service: :press,
+      target: { entity_id: entity_id }
+    )
+  end
+
   def close_garage_door(entity_id)
     send_data(
       type: :call_service, domain: :cover, service: :close_cover,
