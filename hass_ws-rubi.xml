@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Hass" model="WS-rubi" alias="Home Assistant"
-  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.813">
+  device_class="Lighting_controller" minimum_component_engine_version="0" rpm_xml_version="3.9">
 
   <notes>
+    Version 3.9: Adding RFSwitch entity for hass 'switch:' domain lighting zones.
     Version 3.8: Adding Button entity.
     Version 3.7: Updated script loader to allow specifying script path, server url, and force updating on load.
     Version 3.6: Fixed another typo in lib loading.
@@ -330,6 +331,42 @@
         </command_interface>
       </action>
 
+      <action name="RFButtonPress">
+        <action_argument name="Address1" note="Entity ID"/>
+        <action_argument name="Address2" note="not used"/>
+        <action_argument name="Address3" note=""/>
+        <action_argument name="Address4" note=""/>
+        <action_argument name="Address5" note=""/>
+        <action_argument name="Address6" note=""/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <parameter_list>
+              <parameter parameter_data_type="character">socket_on,</parameter>
+              <parameter parameter_data_type="character" action_argument="Address1"/>
+            </parameter_list>
+            <delay ms_delay="10"/>
+          </command>
+        </command_interface>
+      </action>
+
+      <action name="RFButtonRelease">
+        <action_argument name="Address1" note="Entity ID"/>
+        <action_argument name="Address2" note="not used"/>
+        <action_argument name="Address3" note=""/>
+        <action_argument name="Address4" note=""/>
+        <action_argument name="Address5" note=""/>
+        <action_argument name="Address6" note=""/>
+        <command_interface interface="ip">
+          <command response_required="no">
+            <parameter_list>
+              <parameter parameter_data_type="character">socket_off,</parameter>
+              <parameter parameter_data_type="character" action_argument="Address1"/>
+            </parameter_list>
+            <delay ms_delay="10"/>
+          </command>
+        </command_interface>
+      </action>
+
       <entity name="Dimmer Group" address_components="1">
         <slider_representation>
           <press_action name="DimmerSet"/>
@@ -348,6 +385,21 @@
           <toggle_release_action name="SwitchOff"> </toggle_release_action>
           <osd_press_action name="SwitchOn"> </osd_press_action>
           <osd_hold_action name="SwitchOff"> </osd_hold_action>
+          <toggleOnUsingState name="IsLightOn">
+            <unique_identifier name="Address1" address_component="1" format="%s"/>
+          </toggleOnUsingState>
+        </toggle_button_representation>
+        <query_status_with_action name="TrackEntity" period_ms="0">
+          <with_arg name="Address1" address_component="1" format="%s" />
+        </query_status_with_action>
+      </entity>
+
+      <entity name="RFSwitch" address_components="1">
+        <toggle_button_representation>
+          <release_action name="RFButtonPress"> </release_action>
+          <toggle_release_action name="RFButtonRelease"> </toggle_release_action>
+          <osd_press_action name="RFButtonPress"> </osd_press_action>
+          <osd_hold_action name="RFButtonRelease"> </osd_hold_action>
           <toggleOnUsingState name="IsLightOn">
             <unique_identifier name="Address1" address_component="1" format="%s"/>
           </toggleOnUsingState>
