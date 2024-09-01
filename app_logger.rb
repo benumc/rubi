@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'logger'
+require 'fileutils'
 
 class AppLogger
   def self.setup(file_name, log_path = Dir.home)
