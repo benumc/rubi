@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# Helper function to detect sclibridge path
+detect_scl() {
+    if [ -f '/Users/Shared/Savant/Applications/RacePointMedia/sclibridge' ]; then
+        echo '/Users/Shared/Savant/Applications/RacePointMedia/sclibridge'
+    elif [ -f '/Users/RPM/Applications/RacePointMedia/sclibridge' ]; then
+        echo '/Users/RPM/Applications/RacePointMedia/sclibridge'
+    else
+        echo '/usr/local/bin/sclibridge'
+    fi
+}
+
 # Check for command line arguments
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: bash <(curl -Ls \"https://github.com/benumc/rubi/raw/main/rubi.sh\") [OPTION]"
@@ -18,13 +29,7 @@ if [ "$1" = "--removetriggers" ] || [ "$1" = "--remove" ]; then
     echo ""
     
     # Set up sclibridge path (same logic as installation)
-    if [ -f '/Users/Shared/Savant/Applications/RacePointMedia/sclibridge' ]; then
-        SCL='/Users/Shared/Savant/Applications/RacePointMedia/sclibridge'
-    elif [ -f '/Users/RPM/Applications/RacePointMedia/sclibridge' ]; then
-        SCL='/Users/RPM/Applications/RacePointMedia/sclibridge'
-    else
-        SCL='/usr/local/bin/sclibridge'
-    fi
+    SCL=$(detect_scl)
     
     echo "Using sclibridge at: $SCL"
     echo ""
@@ -54,14 +59,33 @@ if [ "$1" = "--removetriggers" ] || [ "$1" = "--remove" ]; then
     # Combine all PIDs and remove current script PID
     ALL_PIDS="$PORT_PIDS $TITLE_PIDS"
     
-    # Remove duplicates, empty entries, and current script PID
+    # Remove duplicates, empty entries, and current script PID, then verify each PID
     RUBI_PIDS=""
     for pid in $ALL_PIDS; do
         if [ -n "$pid" ] && [ "$pid" != "$$" ]; then
             # Check if this PID is already in our list
             case " $RUBI_PIDS " in
                 *" $pid "*) ;;  # Already in list
-                *) RUBI_PIDS="$RUBI_PIDS $pid" ;;  # Add to list
+                *) 
+                    # Verify this is actually a rubi-related process
+                    if command -v ps >/dev/null 2>&1; then
+                        # Use ps with different format options for better compatibility
+                        CMD=$(ps -p "$pid" -o comm= 2>/dev/null | head -n1)
+                        ARGS=$(ps -p "$pid" -o args= 2>/dev/null | head -n1)
+                        if [ -n "$CMD" ] || [ -n "$ARGS" ]; then
+                            # Check if it's a Ruby process running rubi server or has rubi title
+                            if echo "$CMD $ARGS" | grep -q "ruby.*socket.*-e" || echo "$CMD $ARGS" | grep -q "^rubi" || echo "$CMD $ARGS" | grep -q "ruby.*rubi" || [ "$CMD" = "rubi" ]; then
+                                RUBI_PIDS="$RUBI_PIDS $pid"
+                                echo "Verified rubi process (PID $pid): $CMD $ARGS"
+                            else
+                                echo "Skipping unrelated process (PID $pid): $CMD $ARGS"
+                            fi
+                        fi
+                    else
+                        # Fallback if ps is not available
+                        RUBI_PIDS="$RUBI_PIDS $pid"
+                    fi
+                    ;;
             esac
         fi
     done
@@ -69,17 +93,30 @@ if [ "$1" = "--removetriggers" ] || [ "$1" = "--remove" ]; then
     
     if [ -n "$RUBI_PIDS" ]; then
         echo "Found rubi processes: $RUBI_PIDS"
+        
+        # Pre-elevate sudo privileges to avoid multiple password prompts
+        if command -v sudo >/dev/null 2>&1; then
+            sudo -v 2>/dev/null
+        fi
+        
+        # Kill all PIDs in a single command to avoid multiple password prompts
+        VALID_PIDS=""
         for pid in $RUBI_PIDS; do
             # Double-check this isn't our own script process
             if [ "$pid" != "$$" ] && [ -n "$pid" ]; then
-                echo "Killing PID $pid..."
-                if command -v sudo >/dev/null 2>&1; then
-                    sudo kill "$pid" 2>/dev/null || echo "Could not kill PID $pid"
-                else
-                    kill "$pid" 2>/dev/null || echo "Could not kill PID $pid"
-                fi
+                VALID_PIDS="$VALID_PIDS $pid"
             fi
         done
+        VALID_PIDS=$(echo "$VALID_PIDS" | sed 's/^ *//')  # Remove leading space
+        
+        if [ -n "$VALID_PIDS" ]; then
+            echo "Killing PIDs: $VALID_PIDS"
+            if command -v sudo >/dev/null 2>&1; then
+                sudo kill $VALID_PIDS 2>/dev/null || echo "Could not kill some processes"
+            else
+                kill $VALID_PIDS 2>/dev/null || echo "Could not kill some processes"
+            fi
+        fi
         
         # Give processes time to terminate gracefully
         sleep 2
@@ -96,15 +133,11 @@ if [ "$1" = "--removetriggers" ] || [ "$1" = "--remove" ]; then
         
         if [ -n "$REMAINING" ]; then
             echo "Force killing remaining processes: $REMAINING"
-            for pid in $REMAINING; do
-                if [ "$pid" != "$$" ] && [ -n "$pid" ]; then
-                    if command -v sudo >/dev/null 2>&1; then
-                        sudo kill -9 "$pid" 2>/dev/null || echo "Could not force kill PID $pid"
-                    else
-                        kill -9 "$pid" 2>/dev/null || echo "Could not force kill PID $pid"
-                    fi
-                fi
-            done
+            if command -v sudo >/dev/null 2>&1; then
+                sudo kill -9 $REMAINING 2>/dev/null || echo "Could not force kill some processes"
+            else
+                kill -9 $REMAINING 2>/dev/null || echo "Could not force kill some processes"
+            fi
         fi
     else
         echo "No rubi processes found"
@@ -117,13 +150,7 @@ if [ "$1" = "--removetriggers" ] || [ "$1" = "--remove" ]; then
 fi
 
 # Set up sclibridge path
-if [ -f '/Users/Shared/Savant/Applications/RacePointMedia/sclibridge' ]; then
-    SCL='/Users/Shared/Savant/Applications/RacePointMedia/sclibridge'
-elif [ -f '/Users/RPM/Applications/RacePointMedia/sclibridge' ]; then
-    SCL='/Users/RPM/Applications/RacePointMedia/sclibridge'
-else
-    SCL='/usr/local/bin/sclibridge'
-fi
+SCL=$(detect_scl)
 
 echo "Using sclibridge at: $SCL"
 echo ""
@@ -144,26 +171,88 @@ sleep 2
 echo ""
 
 echo "Killing any existing rubi processes..."
-# Find rubi processes but exclude this script (bash process)
-RUBI_PIDS=$(pgrep -f "ruby.*rubi\|rubi.*ruby" 2>/dev/null | grep -v "^$$\$")
+
+# Find processes listening on port 25809 and processes with rubi title
+PORT_PIDS=""
+if command -v lsof >/dev/null 2>&1; then
+    PORT_PIDS=$(lsof -ti:25809 2>/dev/null)
+fi
+TITLE_PIDS=$(pgrep -x rubi 2>/dev/null)
+PATTERN_PIDS=$(pgrep -f "ruby.*socket.*-e\|rubi" 2>/dev/null | grep -v "^$$\$")
+
+# Combine all PIDs
+ALL_PIDS="$PORT_PIDS $TITLE_PIDS $PATTERN_PIDS"
+
+# Collect unique PIDs, prioritizing port-based detection (most reliable)
+RUBI_PIDS=""
+for pid in $ALL_PIDS; do
+    if [ -n "$pid" ] && [ "$pid" != "$$" ]; then
+        # Check if this PID is already in our list
+        case " $RUBI_PIDS " in
+            *" $pid "*) ;;  # Already in list
+            *) 
+                # If this PID was found by port detection, it's definitely a rubi process
+                case " $PORT_PIDS " in
+                    *" $pid "*)
+                        RUBI_PIDS="$RUBI_PIDS $pid"
+                        echo "Found rubi process via port 25809 (PID $pid)"
+                        ;;
+                    *)
+                        # For other PIDs, try to verify but be more lenient
+                        if command -v ps >/dev/null 2>&1; then
+                            # Use ps with different format options for better compatibility
+                            CMD=$(ps -p "$pid" -o comm= 2>/dev/null | head -n1)
+                            ARGS=$(ps -p "$pid" -o args= 2>/dev/null | head -n1)
+                            if [ -n "$CMD" ] || [ -n "$ARGS" ]; then
+                                # Check if it's a Ruby process running rubi server or has rubi title
+                                FULL_CMD="$CMD $ARGS"
+                                if echo "$FULL_CMD" | grep -q "ruby.*socket.*-e" || echo "$FULL_CMD" | grep -q "^rubi" || echo "$FULL_CMD" | grep -q "ruby.*rubi" || [ "$CMD" = "rubi" ]; then
+                                    RUBI_PIDS="$RUBI_PIDS $pid"
+                                    echo "Verified rubi process (PID $pid): $CMD $ARGS"
+                                else
+                                    # Only show skip message if we got reasonable output from ps
+                                    if echo "$FULL_CMD" | grep -qv "^%cpu %mem" && [ ${#FULL_CMD} -lt 200 ]; then
+                                        echo "Skipping unrelated process (PID $pid): $CMD $ARGS"
+                                    fi
+                                fi
+                            fi
+                        else
+                            # Fallback if ps is not available - trust title-based detection
+                            case " $TITLE_PIDS " in
+                                *" $pid "*) 
+                                    RUBI_PIDS="$RUBI_PIDS $pid"
+                                    echo "Found rubi process via title (PID $pid)"
+                                    ;;
+                            esac
+                        fi
+                        ;;
+                esac
+                ;;
+        esac
+    fi
+done
+RUBI_PIDS=$(echo "$RUBI_PIDS" | sed 's/^ *//')  # Remove leading space
+
 if [ -n "$RUBI_PIDS" ]; then
-    echo "Found rubi processes: $RUBI_PIDS"
+    echo "Found verified rubi processes: $RUBI_PIDS"
     for pid in $RUBI_PIDS; do
-        # Double-check this isn't our own script process
-        if [ "$pid" != "$$" ]; then
-            echo "Killing PID $pid..."
-            kill "$pid" 2>/dev/null || echo "Could not kill PID $pid"
-        fi
+        echo "Killing PID $pid..."
+        kill "$pid" 2>/dev/null || echo "Could not kill PID $pid"
     done
     sleep 1
+    
     # Check if any are still running and force kill
-    REMAINING=$(pgrep -f "ruby.*rubi\|rubi.*ruby" 2>/dev/null | grep -v "^$$\$")
+    REMAINING=""
+    for pid in $RUBI_PIDS; do
+        if kill -0 "$pid" 2>/dev/null; then
+            REMAINING="$REMAINING $pid"
+        fi
+    done
+    
     if [ -n "$REMAINING" ]; then
         echo "Force killing remaining processes: $REMAINING"
         for pid in $REMAINING; do
-            if [ "$pid" != "$$" ]; then
-                kill -9 "$pid" 2>/dev/null || echo "Could not force kill PID $pid"
-            fi
+            kill -9 "$pid" 2>/dev/null || echo "Could not force kill PID $pid"
         done
     fi
 else
@@ -185,6 +274,8 @@ echo ""
 
 echo "Setting up 'rubi' trigger..."
 # This trigger starts the Ruby IRB server when global.rubi changes to 1
+# Export SCL path as environment variable for Ruby to use
+export RUBI_SCL_PATH="$SCL"
 $SCL settrigger rubi 1 String global rubi "Not Equal" 1 0 "$GZN" "" "" 1 "SVC_GEN_GENERIC" "RunCLIProgram" "COMMAND_STRING" "ruby -r socket -e '
 fork do
   Process.setsid
@@ -202,20 +293,9 @@ fork do
     end
   end
 
-  SCB = if RUBY_PLATFORM.include?(\"darwin\")
-    if File.exist?(\"/Users/Shared/Savant/Applications/RacePointMedia/sclibridge\")
-      \"/Users/Shared/Savant/Applications/RacePointMedia/sclibridge\"
-    elsif File.exist?(\"/Users/RPM/Applications/RacePointMedia/sclibridge\")
-      \"/Users/RPM/Applications/RacePointMedia/sclibridge\"
-    else
-      \"/usr/local/bin/sclibridge\"
-    end
-  else
-    \"/usr/local/bin/sclibridge\"
-  end
+  SCB = ENV[\"RUBI_SCL_PATH\"]
   system(\"#{SCB} writestate global.rubi 1\")
   
-  Process.daemon
   Process.setproctitle(\"rubi\")
   
   def handle_client(client)
@@ -226,6 +306,7 @@ fork do
   
   begin
     server = TCPServer.new(\"127.0.0.1\", 25809)
+    server.setsockopt(Socket::SOL_SOCKET, Socket::SO_REUSEADDR, 1)
     loop { handle_client(server.accept) }
   rescue => e
     system(\"#{SCB} writestate global.rubierror #{e.message.gsub(\" \", \"_\")}\")
