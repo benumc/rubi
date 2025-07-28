@@ -1,48 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:noNamespaceSchemaLocation="racepoint_component_profile.xsd" manufacturer="Benumc"
-  model="script-bridge-rubi" device_class="Remote_control" minimum_component_engine_version="0"
-  rpm_xml_version="2.12">
-
-  <notes>
-    Drop in replacement for existing srcipt-bridge to work with rubi co-processor.
-
-    New profiles should be built to work directly with rubi but this profile can work as an in-between until they are complete
-
-    Address on wire should be set to 127.0.0.1
-
-    <![CDATA[ 
-    Rubi can be installed on the host by connecting via terminal and running:
-
-    bash <(curl -Ls "https://github.com/benumc/rubi/raw/main/rubi.sh")
-
-    ]]>
-  </notes>
-  <control_interfaces preferred="ip">
-    <ip port="25809" response_time_length_ms="1000" protocol="tcp">
-      <send_postfix type="hex">0D0A</send_postfix>
-      <receive_end_condition test_condition="data" type="hex">0A</receive_end_condition>
-    </ip>
-  </control_interfaces>
-  <media_interfaces>
-    <data name_on_component="Ethernet">
-      <combined_media>
-        <data_media type="ethernet"/>
-        <control port="25809"/>
-      </combined_media>
-    </data>
-  </media_interfaces>
-  <state_variable_list>
-  </state_variable_list>
-  <logical_component logical_component_name="Component">
-    <implementation/>
-    <custom_component_actions>
-      <action name="CONNECT">
-        <command_interface interface="ip">
-          <command response_required="no">
-            <command_string type="character"/>
-            <parameter_list>
-              <parameter parameter_data_type="character"><![CDATA[
 require 'socket'
 include Socket::Constants
 
@@ -168,15 +123,3 @@ else
   puts "Failed to start server - exiting"
   exit 1
 end
-
-#]]>
-
-              </parameter>
-            </parameter_list>
-          </command>
-        </command_interface>
-        <execute_on_schedule period_ms="0"/>
-      </action>
-    </custom_component_actions>
-  </logical_component>
-</component>
