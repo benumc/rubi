@@ -43,7 +43,7 @@ rescue Errno::EADDRINUSE
     end
   end
   
-  # Method 2: Try netstat on macOS
+  # Method 2: Try netstat (works on both macOS and Linux)
   if !killed
     netstat_output = `netstat -an 2>/dev/null | grep ':25768 '`.strip
     if !netstat_output.empty?
