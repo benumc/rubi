@@ -1,0 +1,125 @@
+require 'socket'
+include Socket::Constants
+
+# Detect profile folder path based on platform and available paths
+if RUBY_PLATFORM.include? 'linux'
+  @profile_folder = '/home/RPM/GNUstep/Library/ApplicationSupport/RacePointMedia/userConfig.rpmConfig/componentProfiles/'
+else
+  # macOS path detection
+  if Dir.exist?('/Users/Shared/Savant/Library/Application Support/RacePointMedia/userConfig.rpmConfig/componentProfiles')
+    @profile_folder = '/Users/Shared/Savant/Library/Application Support/RacePointMedia/userConfig.rpmConfig/componentProfiles/'
+  elsif Dir.exist?('/Users/RPM/Library/Application Support/RacePointMedia/userConfig.rpmConfig')
+    @profile_folder = '/Users/RPM/Library/Application Support/RacePointMedia/userConfig.rpmConfig/componentProfiles/'
+  else
+    puts "Savant Path Not Found"
+    exit 1
+  end
+end
+
+# Kill any existing rubi_script_bridge processes
+puts "Cleaning up existing processes..."
+`pkill -9 -f "rubi_script_bridge" 2>/dev/null`
+`pkill -9 -f "script.*bridge" 2>/dev/null`
+sleep 2  # Give processes time to die
+
+Process.setproctitle('rubi_script_bridge')
+
+# Try to bind to the port with error handling
+begin
+  @profile_connection_server = TCPServer.new('127.0.0.1',25768) #only accept local connections for security reasons.
+rescue Errno::EADDRINUSE
+  puts "Port 25768 already in use. Attempting to kill processes using the port..."
+  
+  # Try multiple methods to find and kill processes using the port
+  killed = false
+  
+  # Method 1: Try lsof if available
+  if system("which lsof > /dev/null 2>&1")
+    pids = `lsof -ti:25768 2>/dev/null`.strip
+    if !pids.empty?
+      puts "Found PIDs using lsof: #{pids}"
+      `echo "#{pids}" | xargs kill -9 2>/dev/null`
+      killed = true
+    end
+  end
+  
+  # Method 2: Try netstat (works on both macOS and Linux)
+  if !killed
+    netstat_output = `netstat -an 2>/dev/null | grep ':25768 '`.strip
+    if !netstat_output.empty?
+      puts "Found processes using netstat, attempting broader cleanup..."
+      # Kill all ruby processes that might be using the port
+      `pkill -f "ruby.*25768" 2>/dev/null`
+      `pkill -f "rubi.*script.*bridge" 2>/dev/null`
+      killed = true
+    end
+  end
+  
+  # Method 3: Kill all processes with "script_bridge" or similar names
+  if !killed
+    puts "Using process name cleanup..."
+    `pkill -f "script.*bridge" 2>/dev/null`
+    `pkill -f "rubi.*script" 2>/dev/null`
+    killed = true
+  end
+  
+  sleep 3  # Give more time for cleanup
+  
+  begin
+    @profile_connection_server = TCPServer.new('127.0.0.1',25768)
+    puts "Successfully bound to port 25768 after cleanup"
+  rescue Errno::EADDRINUSE
+    puts "Unable to bind to port 25768 even after cleanup. You may need to manually kill processes."
+    puts "Try running: sudo pkill -f ruby"
+    exit 1
+  end
+end
+
+@request_pattern = /cmd:run_script&prg:(?<prg>\w+)&file:(?<fnm>.+?)\.xml(?:&options:(?<ops>.+))?/
+
+def setup_script(request_match, sock)
+  prg = request_match[:prg]
+  fl = request_match[:fnm]
+  ops = " #{request_match[:ops]}" if request_match[:ops]
+  fs = "#{@profile_folder}#{fl}.xml"
+  sock.puts "Opening #{fs}"
+  `cat "#{fs}" | grep -A50000 splitScript > /tmp/#{fl}` if fl
+  fl = " /tmp/#{fl}" if fl
+  pr = Process.spawn("#{prg}#{fl}#{ops}", :in => sock, :out => sock, :err => [:child, :out])
+  sock.close
+  Process.detach pr
+end
+
+def handle_connection(sock)
+  request_line = sock.gets("\r").chomp
+  request_match = request_line.match(@request_pattern)
+  return setup_script(request_match, sock) if request_match
+
+  sock.puts('Incorrect pattern found, looking for cmd:run_script&prg:<script_program>&file:<name_of_profile_xml>[&options:<options to pass to script>]')
+  sock.close
+rescue => e
+  puts e
+  puts e.backtrace
+ensure
+  sock.close
+end
+
+def main_loop
+  unless @profile_connection_server
+    puts "Server not initialized. Exiting."
+    return
+  end
+  loop { Thread.start(@profile_connection_server.accept) { |sock| handle_connection(sock) } }
+end
+
+puts "Script bridge server initialized on port 25768"
+puts "Profile folder: #{@profile_folder}"
+
+Thread.abort_on_exception = true
+if @profile_connection_server
+  @main_thread = Thread.new{main_loop}
+  puts "Main thread started"
+else
+  puts "Failed to start server - exiting"
+  exit 1
+end
